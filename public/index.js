@@ -23570,12 +23570,7 @@ function generateChunk(cx, cz) {
   const chunkGroup = new Group;
   chunkGroup.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
   chunkGroup.userData = { cx, cz };
-  const materials = [grassMaterial, dirtMaterial, sandMaterial, rockMaterial, snowMaterial];
-  const instancedMeshes = materials.map((mat) => new InstancedMesh(geometry, mat, MAX_BLOCKS_PER_CHUNK));
-  const instanceCounts = new Array(materials.length).fill(0);
-  const waterMesh = new InstancedMesh(geometry, waterMaterial, CHUNK_SIZE * CHUNK_SIZE);
-  let waterCount = 0;
-  const dummy = new Object3D;
+  const blockGrid = Array(CHUNK_SIZE).fill(0).map(() => Array(MAX_HEIGHT).fill(0).map(() => Array(CHUNK_SIZE).fill(-1)));
   for (let x = 0;x < CHUNK_SIZE; x++) {
     for (let z = 0;z < CHUNK_SIZE; z++) {
       const worldX = cx * CHUNK_SIZE + x;
@@ -23584,10 +23579,10 @@ function generateChunk(cx, cz) {
       const biome = getBiomeAt(worldX, worldZ);
       for (let y = 0;y <= height; y++) {
         const caveValue = caveNoise(worldX / 30, y / 30, worldZ / 30);
-        if (caveValue > 0.7 && y < height - 5 && y > 20)
+        if (caveValue > 0.7 && y < height - 5 && y > 20) {
+          blockGrid[x][y][z] = -1;
           continue;
-        dummy.position.set(x, y, z);
-        dummy.updateMatrix();
+        }
         let matIndex = 0;
         if (y === height) {
           switch (biome) {
@@ -23605,7 +23600,35 @@ function generateChunk(cx, cz) {
         } else {
           matIndex = 3;
         }
-        instancedMeshes[matIndex].setMatrixAt(instanceCounts[matIndex]++, dummy.matrix);
+        blockGrid[x][y][z] = matIndex;
+      }
+      if (height < WATER_LEVEL) {
+        blockGrid[x][WATER_LEVEL][z] = -2;
+      }
+    }
+  }
+  const materials = [grassMaterial, dirtMaterial, sandMaterial, rockMaterial, snowMaterial];
+  const instancedMeshes = materials.map((mat) => new InstancedMesh(geometry, mat, MAX_BLOCKS_PER_CHUNK));
+  const instanceCounts = new Array(materials.length).fill(0);
+  const waterMesh = new InstancedMesh(geometry, waterMaterial, CHUNK_SIZE * CHUNK_SIZE);
+  let waterCount = 0;
+  const dummy = new Object3D;
+  for (let x = 0;x < CHUNK_SIZE; x++) {
+    for (let z = 0;z < CHUNK_SIZE; z++) {
+      const worldX = cx * CHUNK_SIZE + x;
+      const worldZ = cz * CHUNK_SIZE + z;
+      const height = getTerrainHeightAt(worldX, worldZ);
+      const biome = getBiomeAt(worldX, worldZ);
+      for (let y = 0;y <= height; y++) {
+        if (blockGrid[x][y][z] === -1)
+          continue;
+        const matIndex = blockGrid[x][y][z];
+        const isExposed = y + 1 >= MAX_HEIGHT || blockGrid[x][y + 1][z] === -1 || blockGrid[x][y + 1][z] === -2 || (y - 1 < 0 || blockGrid[x][y - 1][z] === -1) || (z - 1 < 0 || blockGrid[x][y][z - 1] === -1 || blockGrid[x][y][z - 1] === -2) || (z + 1 >= CHUNK_SIZE || blockGrid[x][y][z + 1] === -1 || blockGrid[x][y][z + 1] === -2) || (x - 1 < 0 || blockGrid[x - 1][y][z] === -1 || blockGrid[x - 1][y][z] === -2) || (x + 1 >= CHUNK_SIZE || blockGrid[x + 1][y][z] === -1 || blockGrid[x + 1][y][z] === -2);
+        if (isExposed) {
+          dummy.position.set(x, y, z);
+          dummy.updateMatrix();
+          instancedMeshes[matIndex].setMatrixAt(instanceCounts[matIndex]++, dummy.matrix);
+        }
       }
       if (height < WATER_LEVEL) {
         dummy.position.set(x, WATER_LEVEL, z);
@@ -23693,17 +23716,19 @@ function getChunkCoord(coord) {
 }
 function ensureChunkNow(cx, cz) {
   const key = chunkKey(cx, cz);
+  let chunk;
   if (!chunks.has(key)) {
-    const chunk = generateChunk(cx, cz);
+    chunk = generateChunk(cx, cz);
     chunk.visible = true;
     scene.add(chunk);
     chunks.set(key, chunk);
     log(`\uD83C\uDD95 Generated new chunk at ${key}`);
   } else {
-    const chunk = chunks.get(key);
+    chunk = chunks.get(key);
     chunk.visible = true;
     log(`♻️ Reused existing chunk at ${key}`);
   }
+  chunkLastAccessed.set(key, performance.now());
   visibleChunkKeys.add(key);
 }
 function enqueueChunk(cx, cz) {
@@ -23714,12 +23739,14 @@ function enqueueChunk(cx, cz) {
       chunk.visible = true;
       scene.add(chunk);
       chunks.set(key, chunk);
+      chunkLastAccessed.set(key, performance.now());
       visibleChunkKeys.add(key);
     });
   } else {
     chunkQueue.push(() => {
       const chunk = chunks.get(key);
       chunk.visible = true;
+      chunkLastAccessed.set(key, performance.now());
       visibleChunkKeys.add(key);
     });
   }
@@ -23734,6 +23761,8 @@ function updateChunks(playerPosition) {
   lastChunkZ = playerChunkZ;
   log(`\uD83E\uDDED Player Position: (${playerPosition.x.toFixed(3)}, ${playerPosition.z.toFixed(3)})`);
   log(`\uD83D\uDDFA️ Player Chunk: ${playerChunkKey}`);
+  projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  frustum.setFromProjectionMatrix(projScreenMatrix);
   const newVisible = new Set;
   const maxDistSq = renderDistance * renderDistance;
   ensureChunkNow(playerChunkX, playerChunkZ);
@@ -23746,8 +23775,11 @@ function updateChunks(playerPosition) {
       const cz = playerChunkZ + dz;
       const key = chunkKey(cx, cz);
       if (key !== playerChunkKey) {
-        newVisible.add(key);
-        enqueueChunk(cx, cz);
+        const chunkBox = new Box3(new Vector3(cx * CHUNK_SIZE2, 0, cz * CHUNK_SIZE2), new Vector3((cx + 1) * CHUNK_SIZE2, MAX_HEIGHT2, (cz + 1) * CHUNK_SIZE2));
+        if (frustum.intersectsBox(chunkBox)) {
+          newVisible.add(key);
+          enqueueChunk(cx, cz);
+        }
       }
     }
   }
@@ -23762,6 +23794,7 @@ function updateChunks(playerPosition) {
   visibleChunkKeys.clear();
   for (const key of newVisible)
     visibleChunkKeys.add(key);
+  manageChunkCache(playerChunkX, playerChunkZ);
 }
 function processChunkQueue(limit = 4) {
   for (let i = 0;i < limit && chunkQueue.length > 0; i++) {
@@ -23770,13 +23803,55 @@ function processChunkQueue(limit = 4) {
   }
   log(`\uD83D\uDFE9 Visible Chunks (${visibleChunkKeys.size}): ${[...visibleChunkKeys].join(", ")}`);
 }
-var CHUNK_SIZE2 = 16, renderDistance = 3, lastChunkX = Infinity, lastChunkZ = Infinity, chunks, chunkQueue, visibleChunkKeys, DEBUG = true;
+function manageChunkCache(playerChunkX, playerChunkZ) {
+  if (chunks.size <= MAX_CACHED_CHUNKS)
+    return;
+  const sortedChunks = [...chunkLastAccessed.entries()].sort((a, b) => a[1] - b[1]);
+  const chunksToRemove = Math.max(10, chunks.size - MAX_CACHED_CHUNKS);
+  let removedCount = 0;
+  for (const [key, lastAccessed] of sortedChunks) {
+    if (removedCount >= chunksToRemove)
+      break;
+    const [cx, cz] = key.split(",").map(Number);
+    const distSq = (cx - playerChunkX) * (cx - playerChunkX) + (cz - playerChunkZ) * (cz - playerChunkZ);
+    if (distSq > CHUNK_UNLOAD_DISTANCE * CHUNK_UNLOAD_DISTANCE) {
+      const chunk = chunks.get(key);
+      if (chunk) {
+        scene.remove(chunk);
+        chunk.traverse((object) => {
+          if (object instanceof Mesh) {
+            if (object.geometry)
+              object.geometry.dispose();
+            if (object.material) {
+              if (Array.isArray(object.material)) {
+                object.material.forEach((material) => material.dispose());
+              } else {
+                object.material.dispose();
+              }
+            }
+          }
+        });
+        chunks.delete(key);
+        chunkLastAccessed.delete(key);
+        visibleChunkKeys.delete(key);
+        removedCount++;
+        log(`\uD83D\uDDD1️ Unloaded old chunk at ${key}`);
+      }
+    }
+  }
+}
+var CHUNK_SIZE2 = 16, MAX_HEIGHT2 = 300, renderDistance = 3, lastChunkX = Infinity, lastChunkZ = Infinity, chunks, chunkQueue, visibleChunkKeys, DEBUG = true, MAX_CACHED_CHUNKS = 100, CHUNK_UNLOAD_DISTANCE, chunkLastAccessed, frustum, projScreenMatrix;
 var init_chunkmanager = __esm(() => {
+  init_three_module();
   init_renderer();
   init_terrain();
   chunks = new Map;
   chunkQueue = [];
   visibleChunkKeys = new Set;
+  CHUNK_UNLOAD_DISTANCE = renderDistance + 5;
+  chunkLastAccessed = new Map;
+  frustum = new Frustum;
+  projScreenMatrix = new Matrix4;
 });
 
 // src/renderer/index.ts

@@ -152,32 +152,29 @@ export function generateChunk(cx: number, cz: number): THREE.Group {
   chunkGroup.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
   chunkGroup.userData = { cx, cz };
 
-  const materials = [grassMaterial, dirtMaterial, sandMaterial, rockMaterial, snowMaterial];
-  const instancedMeshes = materials.map(mat =>
-    new THREE.InstancedMesh(geometry, mat, MAX_BLOCKS_PER_CHUNK)
+  // First create a 3D grid to track block types
+  const blockGrid: number[][][] = Array(CHUNK_SIZE).fill(0).map(() => 
+    Array(MAX_HEIGHT).fill(0).map(() => 
+      Array(CHUNK_SIZE).fill(-1)  // -1 means empty/air
+    )
   );
-  const instanceCounts = new Array(materials.length).fill(0);
 
-  const waterMesh = new THREE.InstancedMesh(geometry, waterMaterial, CHUNK_SIZE * CHUNK_SIZE);
-  let waterCount = 0;
-
-  const dummy = new THREE.Object3D();
-
+  // Fill the grid with block type data first
   for (let x = 0; x < CHUNK_SIZE; x++) {
     for (let z = 0; z < CHUNK_SIZE; z++) {
       const worldX = cx * CHUNK_SIZE + x;
       const worldZ = cz * CHUNK_SIZE + z;
-
       const height = getTerrainHeightAt(worldX, worldZ);
       const biome = getBiomeAt(worldX, worldZ);
 
       for (let y = 0; y <= height; y++) {
         const caveValue = caveNoise(worldX / 30, y / 30, worldZ / 30);
-        if (caveValue > 0.7 && y < height - 5 && y > 20) continue;
+        if (caveValue > 0.7 && y < height - 5 && y > 20) {
+          blockGrid[x][y][z] = -1; // Air (cave)
+          continue;
+        }
 
-        dummy.position.set(x, y, z); // local position inside chunk
-        dummy.updateMatrix();
-
+        // Determine material index
         let matIndex = 0;
         if (y === height) {
           switch (biome) {
@@ -190,24 +187,81 @@ export function generateChunk(cx: number, cz: number): THREE.Group {
         } else {
           matIndex = 3;
         }
-
-        instancedMeshes[matIndex].setMatrixAt(instanceCounts[matIndex]++, dummy.matrix);
+        
+        blockGrid[x][y][z] = matIndex;
       }
 
+      // Water blocks
+      if (height < WATER_LEVEL) {
+        blockGrid[x][WATER_LEVEL][z] = -2; // -2 represents water
+      }
+    }
+  }
+
+  const materials = [grassMaterial, dirtMaterial, sandMaterial, rockMaterial, snowMaterial];
+  const instancedMeshes = materials.map(mat =>
+    new THREE.InstancedMesh(geometry, mat, MAX_BLOCKS_PER_CHUNK)
+  );
+  const instanceCounts = new Array(materials.length).fill(0);
+
+  const waterMesh = new THREE.InstancedMesh(geometry, waterMaterial, CHUNK_SIZE * CHUNK_SIZE);
+  let waterCount = 0;
+
+  const dummy = new THREE.Object3D();
+
+  // Now render only the visible faces
+  for (let x = 0; x < CHUNK_SIZE; x++) {
+    for (let z = 0; z < CHUNK_SIZE; z++) {
+      const worldX = cx * CHUNK_SIZE + x;
+      const worldZ = cz * CHUNK_SIZE + z;
+      const height = getTerrainHeightAt(worldX, worldZ);
+      const biome = getBiomeAt(worldX, worldZ);
+
+      for (let y = 0; y <= height; y++) {
+        // Skip air blocks (caves or outside terrain)
+        if (blockGrid[x][y][z] === -1) continue;
+        
+        // Only render a block if at least one face is visible
+        const matIndex = blockGrid[x][y][z];
+        
+        // Check if any face is exposed to air or water
+        const isExposed = 
+          // Check block above
+          (y + 1 >= MAX_HEIGHT || blockGrid[x][y + 1][z] === -1 || blockGrid[x][y + 1][z] === -2) ||
+          // Check block below
+          (y - 1 < 0 || blockGrid[x][y - 1][z] === -1) ||
+          // Check block north (-z)
+          (z - 1 < 0 || blockGrid[x][y][z - 1] === -1 || blockGrid[x][y][z - 1] === -2) ||
+          // Check block south (+z)
+          (z + 1 >= CHUNK_SIZE || blockGrid[x][y][z + 1] === -1 || blockGrid[x][y][z + 1] === -2) ||
+          // Check block west (-x)
+          (x - 1 < 0 || blockGrid[x - 1][y][z] === -1 || blockGrid[x - 1][y][z] === -2) ||
+          // Check block east (+x)
+          (x + 1 >= CHUNK_SIZE || blockGrid[x + 1][y][z] === -1 || blockGrid[x + 1][y][z] === -2);
+        
+        // Only render if at least one face is exposed
+        if (isExposed) {
+          dummy.position.set(x, y, z); // local position inside chunk
+          dummy.updateMatrix();
+          instancedMeshes[matIndex].setMatrixAt(instanceCounts[matIndex]++, dummy.matrix);
+        }
+      }
+
+      // Water is always rendered
       if (height < WATER_LEVEL) {
         dummy.position.set(x, WATER_LEVEL, z);
         dummy.updateMatrix();
         waterMesh.setMatrixAt(waterCount++, dummy.matrix);
       }
 
-      // Fix for trees and houses: Position them using local coordinates instead of world coordinates
+      // Trees and houses
       if (biome === BiomeType.Forest && Math.random() < 0.04 && height > WATER_LEVEL) {
-        const tree = generateTree(x, height, z); // Use local coordinates
+        const tree = generateTree(x, height, z);
         chunkGroup.add(tree);
       }
 
       if (biome === BiomeType.Plains && Math.random() < 0.001 && height > WATER_LEVEL) {
-        const house = generateHouse(x, height, z); // Use local coordinates
+        const house = generateHouse(x, height, z);
         chunkGroup.add(house);
       }
     }
