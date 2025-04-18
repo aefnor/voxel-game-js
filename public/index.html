@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Voxel Game</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #111;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+    <div id="player-coords" style="position: absolute; top: 10px; right: 10px; color: white; font-size: 16px; z-index: 10;">
+        Coordinates: (0, 0, 0)
+    </div>
+    <canvas id="game-canvas"></canvas>
+    <input type="range" id="chunk-distance" min="1" max="100" value="3" style="position: absolute; top: 10px; left: 10px; z-index: 1000;">
+    <div id="start-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:black;color:white;display:flex;align-items:center;justify-content:center;z-index:1000;cursor:pointer">
+        Click to Play
+      </div>
+      <!-- add fps to right corner under coords -->
+    <div id="fps" style="position: absolute; top: 30px; right: 10px; color: white; font-size: 16px; z-index: 10;">
+        FPS: 0
+    </div>
+    
+    <script type="module" src="./index.js"></script>
+  </body>
+  
+</html>
