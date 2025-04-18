@@ -212,3 +212,97 @@ function manageChunkCache(playerChunkX: number, playerChunkZ: number) {
     }
   }
 }
+
+/**
+ * Prerenders chunks in a specified radius around a position
+ * @param centerPosition The center position to prerender around
+ * @param radius How many chunks in each direction to prerender
+ * @param maxPerFrame Maximum number of chunks to generate per frame
+ * @returns Promise that resolves when prerendering is complete
+ */
+export async function prerenderArea(
+  centerPosition: THREE.Vector3, 
+  radius: number = 5,
+  maxPerFrame: number = 4
+): Promise<void> {
+  // Convert position to chunk coordinates
+  const centerChunkX = getChunkCoord(centerPosition.x);
+  const centerChunkZ = getChunkCoord(centerPosition.z);
+  
+  log(`🔄 Starting prerender around (${centerChunkX}, ${centerChunkZ}) with radius ${radius}`);
+  
+  // Store all chunk positions to generate in order of distance from center
+  const chunkPositions: Array<[number, number, number]> = [];
+  
+  // Add chunks in a spiral pattern (center-outward)
+  for (let r = 0; r <= radius; r++) {
+    if (r === 0) {
+      // Add center chunk
+      chunkPositions.push([centerChunkX, centerChunkZ, 0]);
+      continue;
+    }
+    
+    // Add the perimeter of the square at distance r
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dz = -r; dz <= r; dz++) {
+        // Only include points on the perimeter of the square
+        if (Math.abs(dx) === r || Math.abs(dz) === r) {
+          const cx = centerChunkX + dx;
+          const cz = centerChunkZ + dz;
+          const distSq = dx * dx + dz * dz;
+          chunkPositions.push([cx, cz, distSq]);
+        }
+      }
+    }
+  }
+  
+  // Sort by distance from center (closest first)
+  chunkPositions.sort((a, b) => a[2] - b[2]);
+  
+  // Create a loading indicator or progress bar
+  const totalChunks = chunkPositions.length;
+  let loadedChunks = 0;
+  
+  // Display loading message
+  const loadingMessage = document.createElement('div');
+  loadingMessage.style.position = 'absolute';
+  loadingMessage.style.top = '50%';
+  loadingMessage.style.left = '50%';
+  loadingMessage.style.transform = 'translate(-50%, -50%)';
+  loadingMessage.style.color = 'white';
+  loadingMessage.style.fontSize = '24px';
+  loadingMessage.style.fontFamily = 'Arial, sans-serif';
+  document.body.appendChild(loadingMessage);
+  
+  // Generate chunks with frame timing
+  return new Promise<void>((resolve) => {
+    function generateNextBatch() {
+      const startTime = performance.now();
+      let generatedThisFrame = 0;
+      
+      while (chunkPositions.length > 0 && generatedThisFrame < maxPerFrame) {
+        const [cx, cz] = chunkPositions.shift()!;
+        ensureChunkNow(cx, cz);
+        loadedChunks++;
+        generatedThisFrame++;
+        
+        // Update loading message
+        const percent = Math.floor((loadedChunks / totalChunks) * 100);
+        loadingMessage.textContent = `Loading world: ${percent}% (${loadedChunks}/${totalChunks} chunks)`;
+      }
+      
+      if (chunkPositions.length > 0) {
+        // Schedule next batch for next frame
+        requestAnimationFrame(generateNextBatch);
+      } else {
+        // All done, remove loading message and resolve
+        document.body.removeChild(loadingMessage);
+        log(`✅ Prerender complete: ${loadedChunks} chunks generated`);
+        resolve();
+      }
+    }
+    
+    // Start generating
+    generateNextBatch();
+  });
+}

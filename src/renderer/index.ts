@@ -3,7 +3,7 @@ import { player, playerCharacter } from '../player/player';
 import { updateCamera } from '../player/camera';
 import { initInput } from '../input/inputhandler';
 import { initHUD, updateHUD } from '../ui/hud';
-import { processChunkQueue, updateChunks } from '../world/chunkmanager';
+import { prerenderArea, processChunkQueue, updateChunks } from '../world/chunkmanager';
 import { setFlatTerrainMode } from '../world/terrain';
 
 let frameCount = 0;
@@ -61,8 +61,9 @@ function animate() {
     }
   }
 }
-setFlatTerrainMode(true); // Enable flat terrain mode for testing
+setFlatTerrainMode(false); // Enable flat terrain mode for testing
 
 initHUD();
 initInput();
+await prerenderArea(player.position, 25, 5); // 7 chunk radius, 5 chunks per frame
 animate();
