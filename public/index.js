@@ -24298,7 +24298,7 @@ function updateProjectiles(deltaTime) {
 }
 function updateWalkAnimation(deltaTime) {
   const character = playerCharacter;
-  const walkSpeed = 15;
+  const walkSpeed = 1;
   if (isAiming) {
     character.rightArm.rotation.x = -Math.PI / 2;
     character.rightArm.rotation.z = 0;
@@ -24342,7 +24342,7 @@ function updateWalkAnimation(deltaTime) {
   }
 }
 function updateCamera() {
-  const moveSpeed = 0.5;
+  const moveSpeed = 0.1;
   const deltaTime = 1 / 60;
   const forward = _forward.copy(new Vector3(0, 0, -1)).applyQuaternion(player.quaternion).normalize();
   forward.y = 0;

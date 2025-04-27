@@ -165,7 +165,7 @@ function updateProjectiles(deltaTime: number) {
 // Modify your updateWalkAnimation function to handle aiming
 function updateWalkAnimation(deltaTime: number) {
   const character = playerCharacter as HumanCharacter;
-  const walkSpeed = 15; // Adjust to taste
+  const walkSpeed = 1; // Adjust to taste
   
   // Apply aiming pose to right arm if aiming
   if (isAiming) {
@@ -231,7 +231,7 @@ function updateWalkAnimation(deltaTime: number) {
 
 export function updateCamera() {
   // Cache these calculations outside the function
-  const moveSpeed = 0.5;
+  const moveSpeed = 0.1;
   const deltaTime = 1/60; // Better to calculate actual deltaTime between frames
 
   // Avoid recreating vectors every frame
