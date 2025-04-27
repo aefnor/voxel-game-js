@@ -53,71 +53,80 @@ const frustum = new THREE.Frustum();
 const projScreenMatrix = new THREE.Matrix4();
 
 // Initialize the chunk worker
-export function initChunkWorker() {
+export function initChunkWorker(): Promise<void> {
   if (chunkWorker) {
     // Already initialized
-    return;
+    return Promise.resolve();
   }
 
   // Create the worker
   chunkWorker = new Worker('chunk-worker.js');
+  
+  // Make the worker accessible globally for other modules
+  (window as any).chunkWorkerInstance = chunkWorker;
 
-  // Set up the message handling
-  chunkWorker.onmessage = (e) => {
-    const { type, data } = e.data;
-    
-    switch (type) {
-      case 'initialized':
-        log('🧠 Chunk worker initialized and ready');
-        break;
-        
-      case 'chunkGenerated':
-        const { cx, cz, chunkData } = data;
-        const key = chunkKey(cx, cz);
-        
-        try {
-          // Create a THREE.js group for the chunk
-          const chunk = createChunkFromWorkerData(cx, cz, chunkData);
+  // Return a promise that resolves when the worker is initialized
+  return new Promise((resolve) => {
+    // Set up the message handling
+    if (!chunkWorker) {
+        throw new Error('Chunk worker is not initialized');
+    }
+    chunkWorker.onmessage = (e) => {
+      const { type, data } = e.data;
+      
+      switch (type) {
+        case 'initialized':
+          log('🧠 Chunk worker initialized and ready');
+          resolve(); // Resolve the promise when initialization is complete
+          break;
           
-          // Resolve the pending request
-          const request = pendingChunkRequests.get(key);
-          if (request) {
-            request.resolve(chunk);
-            pendingChunkRequests.delete(key);
+        case 'chunkGenerated':
+          const { cx, cz, chunkData } = data;
+          const key = chunkKey(cx, cz);
+          
+          try {
+            // Create a THREE.js group for the chunk
+            const chunk = createChunkFromWorkerData(cx, cz, chunkData);
+            
+            // Resolve the pending request
+            const request = pendingChunkRequests.get(key);
+            if (request) {
+              request.resolve(chunk);
+              pendingChunkRequests.delete(key);
+            }
+          } catch (error) {
+            console.error('Error creating chunk from worker data:', error);
+            
+            // Reject the pending request
+            const request = pendingChunkRequests.get(key);
+            if (request) {
+              request.reject(new Error(`Failed to create chunk from worker data: ${error}`));
+              pendingChunkRequests.delete(key);
+            }
           }
-        } catch (error) {
-          console.error('Error creating chunk from worker data:', error);
+          break;
+          
+        case 'error':
+          const errorKey = chunkKey(data.cx, data.cz);
+          console.error(`Error generating chunk ${errorKey}: ${data.message}`);
           
           // Reject the pending request
-          const request = pendingChunkRequests.get(key);
-          if (request) {
-            request.reject(new Error(`Failed to create chunk from worker data: ${error}`));
-            pendingChunkRequests.delete(key);
+          const errorRequest = pendingChunkRequests.get(errorKey);
+          if (errorRequest) {
+            errorRequest.reject(new Error(data.message));
+            pendingChunkRequests.delete(errorKey);
           }
-        }
-        break;
-        
-      case 'error':
-        const errorKey = chunkKey(data.cx, data.cz);
-        console.error(`Error generating chunk ${errorKey}: ${data.message}`);
-        
-        // Reject the pending request
-        const errorRequest = pendingChunkRequests.get(errorKey);
-        if (errorRequest) {
-          errorRequest.reject(new Error(data.message));
-          pendingChunkRequests.delete(errorKey);
-        }
-        break;
-    }
-  };
-  
-  // Initialize the worker with the simplex noise library
-  // In a real implementation, you'd need to make the simplex-noise library available
-  chunkWorker.postMessage({
-    type: 'init',
-    data: {
-      simplexNoiseUrl: 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js'
-    }
+          break;
+      }
+    };
+    
+    // Initialize the worker with the simplex noise library
+    chunkWorker.postMessage({
+      type: 'init',
+      data: {
+        simplexNoiseUrl: 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js'
+      }
+    });
   });
 }
 
@@ -147,7 +156,9 @@ function createChunkFromWorkerData(cx: number, cz: number, chunkData: any): THRE
     const { x, y, z, materialIndex } = block;
     dummy.position.set(x, y, z); // local position inside chunk
     dummy.updateMatrix();
-    instancedMeshes[materialIndex].setMatrixAt(instanceCounts[materialIndex]++, dummy.matrix);
+    if (instancedMeshes[materialIndex]) {
+        instancedMeshes[materialIndex].setMatrixAt(instanceCounts[materialIndex]++, dummy.matrix);
+    }
   }
   
   // Place water blocks
@@ -385,6 +396,8 @@ function manageChunkCache(playerChunkX: number, playerChunkZ: number) {
     
     // Parse chunk coordinates from key
     const [cx, cz] = key.split(',').map(Number);
+
+    if (cx === undefined || cz === undefined) continue; // Skip invalid keys
     
     // Check if chunk is far enough from player to unload
     const distSq = (cx - playerChunkX) * (cx - playerChunkX) + 
@@ -490,7 +503,9 @@ export async function prerenderArea(
       let generatedThisFrame = 0;
       
       while (chunkPositions.length > 0 && generatedThisFrame < maxPerFrame) {
-        const [cx, cz] = chunkPositions.shift()!;
+        const chunkPosition = chunkPositions.shift();
+        if (!chunkPosition) continue;
+        const [cx, cz] = chunkPosition ?? [0, 0];
         ensureChunkNow(cx, cz);
         loadedChunks++;
         generatedThisFrame++;
@@ -546,7 +561,7 @@ export function getActualTerrainHeight(x: number, z: number): number {
     
     const intersects = raycaster.intersectObject(chunk, true);
     if (intersects.length > 0) {
-      return intersects[0].point.y;
+      return intersects[0]?.point.y ?? getTerrainHeightAt(x, z);
     }
   }
   

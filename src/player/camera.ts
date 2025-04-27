@@ -3,8 +3,8 @@ import { player, playerHeight, playerCharacter, velocityY, onGround, GRAVITY, JU
 import { camera, scene } from '../renderer/renderer';
 import { getTerrainHeightAt } from '../world/terrain';
 import { getActualTerrainHeight } from '../world/chunkmanager';
-import { HumanCharacter } from './playerModel';
-import { Gun } from '../items/gun';
+import type { HumanCharacter } from './playerModel';
+import type { Gun } from '../items/gun';
 
 // Add shooting state variables
 let canShoot = true;
@@ -147,17 +147,20 @@ function updateProjectiles(deltaTime: number) {
     const projectile = projectiles[i];
     
     // Move projectile
-    projectile.position.add(
-      projectile.userData.velocity.clone().multiplyScalar(deltaTime * 60)
-    );
+    if (projectile) {
+      projectile.position.add(
+        projectile.userData.velocity.clone().multiplyScalar(deltaTime * 60)
+      );
     
-    // Decrement lifetime
-    projectile.userData.lifetime -= deltaTime;
     
-    // Remove if lifetime expired
-    if (projectile.userData.lifetime <= 0) {
-      scene.remove(projectile);
-      projectiles.splice(i, 1);
+      // Decrement lifetime
+      projectile.userData.lifetime -= deltaTime;
+      
+      // Remove if lifetime expired
+      if (projectile.userData.lifetime <= 0) {
+        scene.remove(projectile);
+        projectiles.splice(i, 1);
+      }
     }
   }
 }

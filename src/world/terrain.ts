@@ -11,7 +11,6 @@ export const WATER_LEVEL = 60; // Fixed water level
 export let USE_FLAT_TERRAIN = false;
 export const FLAT_TERRAIN_HEIGHT = 70; // Height for flat terrain mode
 
-
 // Create multiple noise functions
 const mainNoise = createNoise2D();
 const detailNoise = createNoise2D();
@@ -55,6 +54,16 @@ function getBiomeAt(x: number, z: number): BiomeType {
 export function setFlatTerrainMode(enabled: boolean): void {
   USE_FLAT_TERRAIN = enabled;
   console.log(`Flat terrain mode ${enabled ? 'enabled' : 'disabled'}`);
+  
+  // Send message to chunk worker directly without importing from chunkmanager
+  // This avoids the circular dependency
+  const chunkWorker = (window as any).chunkWorkerInstance;
+  if (chunkWorker) {
+    chunkWorker.postMessage({
+      type: 'setFlatTerrainMode',
+      data: { enabled }
+    });
+  }
 }
 
 // Get terrain height using multiple octaves of noise
@@ -153,16 +162,14 @@ export function generateChunk(cx: number, cz: number): THREE.Group {
     chunkGroup.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
     chunkGroup.userData = { cx, cz };
 
-    const blockGrid: number[][][] = [];
-    for (let x = 0; x < CHUNK_SIZE; x++) {
-      blockGrid[x] = [];
-      for (let y = 0; y < MAX_HEIGHT; y++) {
-        blockGrid[x][y] = [];
-        for (let z = 0; z < CHUNK_SIZE; z++) {
-          blockGrid[x][y][z] = -1; // -1 means empty/air
-        }
-      }
-    }
+    // Initialize the entire 3D array structure upfront
+    const blockGrid: number[][][] = Array(CHUNK_SIZE)
+      .fill(null)
+      .map(() => 
+        Array(MAX_HEIGHT)
+          .fill(null)
+          .map(() => Array(CHUNK_SIZE).fill(-1))
+      );
 
     // Fill the grid with block type data first
     for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -175,7 +182,7 @@ export function generateChunk(cx: number, cz: number): THREE.Group {
         for (let y = 0; y <= height; y++) {
           const caveValue = caveNoise(worldX / 30, y / 30, worldZ / 30);
           if (caveValue > 0.7 && y < height - 5 && y > 20) {
-            blockGrid[x][y][z] = -1; // Air (cave)
+            blockGrid[x]![y]![z] = -1; // Air (cave)
             continue;
           }
 
@@ -193,12 +200,12 @@ export function generateChunk(cx: number, cz: number): THREE.Group {
             matIndex = 3;
           }
           
-          blockGrid[x][y][z] = matIndex;
+          blockGrid[x]![y]![z] = matIndex;
         }
 
         // Water blocks
         if (height < WATER_LEVEL) {
-          blockGrid[x][WATER_LEVEL][z] = -2; // -2 represents water
+          blockGrid[x]![WATER_LEVEL]![z] = -2; // -2 represents water
         }
       }
     }
@@ -224,31 +231,31 @@ export function generateChunk(cx: number, cz: number): THREE.Group {
 
         for (let y = 0; y <= height; y++) {
           // Skip air blocks (caves or outside terrain)
-          if (blockGrid[x][y][z] === -1) continue;
+          if (blockGrid[x]![y]![z] === -1) continue;
           
           // Only render a block if at least one face is visible
-          const matIndex = blockGrid[x][y][z];
+          const matIndex = blockGrid[x]![y]![z];
           
           // Check if any face is exposed to air or water
           const isExposed = 
             // Check block above
-            (y + 1 >= MAX_HEIGHT || blockGrid[x][y + 1][z] === -1 || blockGrid[x][y + 1][z] === -2) ||
+            (y + 1 >= MAX_HEIGHT || blockGrid[x]![y + 1]?.[z] === -1 || blockGrid[x]![y + 1]?.[z] === -2) ||
             // Check block below
-            (y - 1 < 0 || blockGrid[x][y - 1][z] === -1) ||
+            (y - 1 < 0 || blockGrid[x]![y - 1]?.[z] === -1) ||
             // Check block north (-z)
-            (z - 1 < 0 || blockGrid[x][y][z - 1] === -1 || blockGrid[x][y][z - 1] === -2) ||
+            (z - 1 < 0 || blockGrid[x]![y]![z - 1] === -1 || blockGrid[x]![y]![z - 1] === -2) ||
             // Check block south (+z)
-            (z + 1 >= CHUNK_SIZE || blockGrid[x][y][z + 1] === -1 || blockGrid[x][y][z + 1] === -2) ||
+            (z + 1 >= CHUNK_SIZE || blockGrid[x]![y]![z + 1] === -1 || blockGrid[x]![y]![z + 1] === -2) ||
             // Check block west (-x)
-            (x - 1 < 0 || blockGrid[x - 1][y][z] === -1 || blockGrid[x - 1][y][z] === -2) ||
+            (x - 1 < 0 || blockGrid[x - 1]?.[y]?.[z] === -1 || blockGrid[x - 1]?.[y]?.[z] === -2) ||
             // Check block east (+x)
-            (x + 1 >= CHUNK_SIZE || blockGrid[x + 1][y][z] === -1 || blockGrid[x + 1][y][z] === -2);
+            (x + 1 >= CHUNK_SIZE || blockGrid[x + 1]?.[y]?.[z] === -1 || blockGrid[x + 1]?.[y]?.[z] === -2);
           
           // Only render if at least one face is exposed
-          if (isExposed) {
+          if (isExposed && typeof matIndex === 'number' && matIndex >= 0 && matIndex < instancedMeshes.length) {
             dummy.position.set(x, y, z); // local position inside chunk
             dummy.updateMatrix();
-            instancedMeshes[matIndex].setMatrixAt(instanceCounts[matIndex]++, dummy.matrix);
+            instancedMeshes[matIndex]!.setMatrixAt(instanceCounts[matIndex]++, dummy.matrix);
           }
         }
 

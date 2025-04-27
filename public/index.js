@@ -23600,6 +23600,13 @@ function getBiomeAt(x, z) {
 function setFlatTerrainMode(enabled) {
   USE_FLAT_TERRAIN = enabled;
   console.log(`Flat terrain mode ${enabled ? "enabled" : "disabled"}`);
+  const chunkWorker = window.chunkWorkerInstance;
+  if (chunkWorker) {
+    chunkWorker.postMessage({
+      type: "setFlatTerrainMode",
+      data: { enabled }
+    });
+  }
 }
 function getTerrainHeightAt(x, z) {
   if (USE_FLAT_TERRAIN) {
@@ -23640,16 +23647,7 @@ function generateChunk(cx, cz) {
     const chunkGroup = new Group;
     chunkGroup.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
     chunkGroup.userData = { cx, cz };
-    const blockGrid = [];
-    for (let x = 0;x < CHUNK_SIZE; x++) {
-      blockGrid[x] = [];
-      for (let y = 0;y < MAX_HEIGHT; y++) {
-        blockGrid[x][y] = [];
-        for (let z = 0;z < CHUNK_SIZE; z++) {
-          blockGrid[x][y][z] = -1;
-        }
-      }
-    }
+    const blockGrid = Array(CHUNK_SIZE).fill(null).map(() => Array(MAX_HEIGHT).fill(null).map(() => Array(CHUNK_SIZE).fill(-1)));
     for (let x = 0;x < CHUNK_SIZE; x++) {
       for (let z = 0;z < CHUNK_SIZE; z++) {
         const worldX = cx * CHUNK_SIZE + x;
@@ -23702,8 +23700,8 @@ function generateChunk(cx, cz) {
           if (blockGrid[x][y][z] === -1)
             continue;
           const matIndex = blockGrid[x][y][z];
-          const isExposed = y + 1 >= MAX_HEIGHT || blockGrid[x][y + 1][z] === -1 || blockGrid[x][y + 1][z] === -2 || (y - 1 < 0 || blockGrid[x][y - 1][z] === -1) || (z - 1 < 0 || blockGrid[x][y][z - 1] === -1 || blockGrid[x][y][z - 1] === -2) || (z + 1 >= CHUNK_SIZE || blockGrid[x][y][z + 1] === -1 || blockGrid[x][y][z + 1] === -2) || (x - 1 < 0 || blockGrid[x - 1][y][z] === -1 || blockGrid[x - 1][y][z] === -2) || (x + 1 >= CHUNK_SIZE || blockGrid[x + 1][y][z] === -1 || blockGrid[x + 1][y][z] === -2);
-          if (isExposed) {
+          const isExposed = y + 1 >= MAX_HEIGHT || blockGrid[x][y + 1]?.[z] === -1 || blockGrid[x][y + 1]?.[z] === -2 || (y - 1 < 0 || blockGrid[x][y - 1]?.[z] === -1) || (z - 1 < 0 || blockGrid[x][y][z - 1] === -1 || blockGrid[x][y][z - 1] === -2) || (z + 1 >= CHUNK_SIZE || blockGrid[x][y][z + 1] === -1 || blockGrid[x][y][z + 1] === -2) || (x - 1 < 0 || blockGrid[x - 1]?.[y]?.[z] === -1 || blockGrid[x - 1]?.[y]?.[z] === -2) || (x + 1 >= CHUNK_SIZE || blockGrid[x + 1]?.[y]?.[z] === -1 || blockGrid[x + 1]?.[y]?.[z] === -2);
+          if (isExposed && typeof matIndex === "number" && matIndex >= 0 && matIndex < instancedMeshes.length) {
             dummy.position.set(x, y, z);
             dummy.updateMatrix();
             instancedMeshes[matIndex].setMatrixAt(instanceCounts[matIndex]++, dummy.matrix);
@@ -23818,50 +23816,57 @@ function log(...args) {
 }
 function initChunkWorker() {
   if (chunkWorker) {
-    return;
+    return Promise.resolve();
   }
   chunkWorker = new Worker("chunk-worker.js");
-  chunkWorker.onmessage = (e) => {
-    const { type, data } = e.data;
-    switch (type) {
-      case "initialized":
-        log("\uD83E\uDDE0 Chunk worker initialized and ready");
-        break;
-      case "chunkGenerated":
-        const { cx, cz, chunkData } = data;
-        const key = chunkKey(cx, cz);
-        try {
-          const chunk = createChunkFromWorkerData(cx, cz, chunkData);
-          const request = pendingChunkRequests.get(key);
-          if (request) {
-            request.resolve(chunk);
-            pendingChunkRequests.delete(key);
-          }
-        } catch (error) {
-          console.error("Error creating chunk from worker data:", error);
-          const request = pendingChunkRequests.get(key);
-          if (request) {
-            request.reject(new Error(`Failed to create chunk from worker data: ${error}`));
-            pendingChunkRequests.delete(key);
-          }
-        }
-        break;
-      case "error":
-        const errorKey = chunkKey(data.cx, data.cz);
-        console.error(`Error generating chunk ${errorKey}: ${data.message}`);
-        const errorRequest = pendingChunkRequests.get(errorKey);
-        if (errorRequest) {
-          errorRequest.reject(new Error(data.message));
-          pendingChunkRequests.delete(errorKey);
-        }
-        break;
+  window.chunkWorkerInstance = chunkWorker;
+  return new Promise((resolve) => {
+    if (!chunkWorker) {
+      throw new Error("Chunk worker is not initialized");
     }
-  };
-  chunkWorker.postMessage({
-    type: "init",
-    data: {
-      simplexNoiseUrl: "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js"
-    }
+    chunkWorker.onmessage = (e) => {
+      const { type, data } = e.data;
+      switch (type) {
+        case "initialized":
+          log("\uD83E\uDDE0 Chunk worker initialized and ready");
+          resolve();
+          break;
+        case "chunkGenerated":
+          const { cx, cz, chunkData } = data;
+          const key = chunkKey(cx, cz);
+          try {
+            const chunk = createChunkFromWorkerData(cx, cz, chunkData);
+            const request = pendingChunkRequests.get(key);
+            if (request) {
+              request.resolve(chunk);
+              pendingChunkRequests.delete(key);
+            }
+          } catch (error) {
+            console.error("Error creating chunk from worker data:", error);
+            const request = pendingChunkRequests.get(key);
+            if (request) {
+              request.reject(new Error(`Failed to create chunk from worker data: ${error}`));
+              pendingChunkRequests.delete(key);
+            }
+          }
+          break;
+        case "error":
+          const errorKey = chunkKey(data.cx, data.cz);
+          console.error(`Error generating chunk ${errorKey}: ${data.message}`);
+          const errorRequest = pendingChunkRequests.get(errorKey);
+          if (errorRequest) {
+            errorRequest.reject(new Error(data.message));
+            pendingChunkRequests.delete(errorKey);
+          }
+          break;
+      }
+    };
+    chunkWorker.postMessage({
+      type: "init",
+      data: {
+        simplexNoiseUrl: "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js"
+      }
+    });
   });
 }
 function createChunkFromWorkerData(cx, cz, chunkData) {
@@ -23878,7 +23883,9 @@ function createChunkFromWorkerData(cx, cz, chunkData) {
     const { x, y, z, materialIndex } = block;
     dummy.position.set(x, y, z);
     dummy.updateMatrix();
-    instancedMeshes[materialIndex].setMatrixAt(instanceCounts[materialIndex]++, dummy.matrix);
+    if (instancedMeshes[materialIndex]) {
+      instancedMeshes[materialIndex].setMatrixAt(instanceCounts[materialIndex]++, dummy.matrix);
+    }
   }
   for (const block of waterBlocks) {
     const { x, y, z } = block;
@@ -24054,6 +24061,8 @@ function manageChunkCache(playerChunkX, playerChunkZ) {
     if (removedCount >= chunksToRemove)
       break;
     const [cx, cz] = key.split(",").map(Number);
+    if (cx === undefined || cz === undefined)
+      continue;
     const distSq = (cx - playerChunkX) * (cx - playerChunkX) + (cz - playerChunkZ) * (cz - playerChunkZ);
     if (distSq > CHUNK_UNLOAD_DISTANCE * CHUNK_UNLOAD_DISTANCE) {
       const chunk = chunks.get(key);
@@ -24119,7 +24128,10 @@ async function prerenderArea(centerPosition, radius = 5, maxPerFrame = 4) {
       const startTime = performance.now();
       let generatedThisFrame = 0;
       while (chunkPositions.length > 0 && generatedThisFrame < maxPerFrame) {
-        const [cx, cz] = chunkPositions.shift();
+        const chunkPosition = chunkPositions.shift();
+        if (!chunkPosition)
+          continue;
+        const [cx, cz] = chunkPosition ?? [0, 0];
         ensureChunkNow(cx, cz);
         loadedChunks++;
         generatedThisFrame++;
@@ -24149,7 +24161,7 @@ function getActualTerrainHeight(x, z) {
     const raycaster = new Raycaster(new Vector3(x, MAX_HEIGHT2 + 10, z), new Vector3(0, -1, 0), 0, MAX_HEIGHT2 + 20);
     const intersects = raycaster.intersectObject(chunk, true);
     if (intersects.length > 0) {
-      return intersects[0].point.y;
+      return intersects[0]?.point.y ?? getTerrainHeightAt(x, z);
     }
   }
   return getTerrainHeightAt(x, z);
@@ -24288,11 +24300,13 @@ function shoot() {
 function updateProjectiles(deltaTime) {
   for (let i = projectiles.length - 1;i >= 0; i--) {
     const projectile = projectiles[i];
-    projectile.position.add(projectile.userData.velocity.clone().multiplyScalar(deltaTime * 60));
-    projectile.userData.lifetime -= deltaTime;
-    if (projectile.userData.lifetime <= 0) {
-      scene.remove(projectile);
-      projectiles.splice(i, 1);
+    if (projectile) {
+      projectile.position.add(projectile.userData.velocity.clone().multiplyScalar(deltaTime * 60));
+      projectile.userData.lifetime -= deltaTime;
+      if (projectile.userData.lifetime <= 0) {
+        scene.remove(projectile);
+        projectiles.splice(i, 1);
+      }
     }
   }
 }
@@ -24501,7 +24515,10 @@ function animate() {
   const renderTime = performance.now() - renderStart;
   if (frameCount2 % 10 === 0) {
     const fps = Math.round(1000 / (performance.now() - start));
-    document.getElementById("fps").textContent = `FPS: ${fps}`;
+    const fpsElement = document.getElementById("fps");
+    if (fpsElement) {
+      fpsElement.textContent = `FPS: ${fps}`;
+    }
   }
   if (frameCount2 % 100 === 0) {
     const performanceEntries = [];
@@ -24521,24 +24538,28 @@ function animate() {
     }
   }
 }
-setFlatTerrainMode(false);
 console.log("\uD83D\uDE80 Initializing voxel engine...");
-console.log("\uD83E\uDDE0 Initializing chunk worker...");
-initChunkWorker();
-initHUD();
-initInput();
-var loadingMessage = document.createElement("div");
-loadingMessage.style.position = "absolute";
-loadingMessage.style.top = "50%";
-loadingMessage.style.left = "50%";
-loadingMessage.style.transform = "translate(-50%, -50%)";
-loadingMessage.style.color = "white";
-loadingMessage.style.fontSize = "24px";
-loadingMessage.style.fontFamily = "Arial, sans-serif";
-loadingMessage.textContent = "Loading world...";
-document.body.appendChild(loadingMessage);
-console.log("\uD83D\uDDFA️ Prerendering initial chunks...");
-await prerenderArea(player.position, 5, 5);
-document.body.removeChild(loadingMessage);
-console.log("\uD83C\uDFAE Starting game loop");
-animate();
+async function initGame() {
+  console.log("\uD83E\uDDE0 Initializing chunk worker...");
+  await initChunkWorker();
+  console.log("\uD83C\uDFDE️ Setting flat terrain mode...");
+  setFlatTerrainMode(false);
+  initHUD();
+  initInput();
+  const loadingMessage = document.createElement("div");
+  loadingMessage.style.position = "absolute";
+  loadingMessage.style.top = "50%";
+  loadingMessage.style.left = "50%";
+  loadingMessage.style.transform = "translate(-50%, -50%)";
+  loadingMessage.style.color = "white";
+  loadingMessage.style.fontSize = "24px";
+  loadingMessage.style.fontFamily = "Arial, sans-serif";
+  loadingMessage.textContent = "Loading world...";
+  document.body.appendChild(loadingMessage);
+  console.log("\uD83D\uDDFA️ Prerendering initial chunks...");
+  await prerenderArea(player.position, 5, 5);
+  document.body.removeChild(loadingMessage);
+  console.log("\uD83C\uDFAE Starting game loop");
+  animate();
+}
+initGame();
