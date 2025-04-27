@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { scene, camera } from '../renderer/renderer'; // Add camera import
-import { generateChunk } from './terrain';
+import { scene, camera } from '../renderer/renderer';
+import { generateChunk, getTerrainHeightAt } from './terrain';
+import { createTreeFromData, createHouseFromData } from './special-objects';
 
 const CHUNK_SIZE = 16;
 const MAX_HEIGHT = 300;
@@ -11,6 +12,29 @@ let lastChunkZ = Infinity;
 const chunks = new Map<string, THREE.Group>();
 const chunkQueue: Array<() => void> = [];
 const visibleChunkKeys = new Set<string>();
+
+// Add worker communication
+let chunkWorker: Worker | null = null;
+const pendingChunkRequests = new Map<string, {
+  resolve: (chunk: THREE.Group) => void,
+  reject: (error: Error) => void
+}>();
+
+// Materials for chunk creation from worker data
+const grassMaterial = new THREE.MeshLambertMaterial({ color: 0x3d9140 });
+const dirtMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+const sandMaterial = new THREE.MeshLambertMaterial({ color: 0xDEB887 });
+const rockMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+const snowMaterial = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
+const waterMaterial = new THREE.MeshLambertMaterial({ 
+  color: 0x0099FF, 
+  transparent: true, 
+  opacity: 0.7 
+});
+
+// Block geometry for instanced meshes
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+const materials = [grassMaterial, dirtMaterial, sandMaterial, rockMaterial, snowMaterial];
 
 const DEBUG = true;
 function log(...args: any[]) {
@@ -28,6 +52,162 @@ const chunkLastAccessed = new Map<string, number>();
 const frustum = new THREE.Frustum();
 const projScreenMatrix = new THREE.Matrix4();
 
+// Initialize the chunk worker
+export function initChunkWorker() {
+  if (chunkWorker) {
+    // Already initialized
+    return;
+  }
+
+  // Create the worker
+  chunkWorker = new Worker('chunk-worker.js');
+
+  // Set up the message handling
+  chunkWorker.onmessage = (e) => {
+    const { type, data } = e.data;
+    
+    switch (type) {
+      case 'initialized':
+        log('🧠 Chunk worker initialized and ready');
+        break;
+        
+      case 'chunkGenerated':
+        const { cx, cz, chunkData } = data;
+        const key = chunkKey(cx, cz);
+        
+        try {
+          // Create a THREE.js group for the chunk
+          const chunk = createChunkFromWorkerData(cx, cz, chunkData);
+          
+          // Resolve the pending request
+          const request = pendingChunkRequests.get(key);
+          if (request) {
+            request.resolve(chunk);
+            pendingChunkRequests.delete(key);
+          }
+        } catch (error) {
+          console.error('Error creating chunk from worker data:', error);
+          
+          // Reject the pending request
+          const request = pendingChunkRequests.get(key);
+          if (request) {
+            request.reject(new Error(`Failed to create chunk from worker data: ${error}`));
+            pendingChunkRequests.delete(key);
+          }
+        }
+        break;
+        
+      case 'error':
+        const errorKey = chunkKey(data.cx, data.cz);
+        console.error(`Error generating chunk ${errorKey}: ${data.message}`);
+        
+        // Reject the pending request
+        const errorRequest = pendingChunkRequests.get(errorKey);
+        if (errorRequest) {
+          errorRequest.reject(new Error(data.message));
+          pendingChunkRequests.delete(errorKey);
+        }
+        break;
+    }
+  };
+  
+  // Initialize the worker with the simplex noise library
+  // In a real implementation, you'd need to make the simplex-noise library available
+  chunkWorker.postMessage({
+    type: 'init',
+    data: {
+      simplexNoiseUrl: 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js'
+    }
+  });
+}
+
+// Creates a THREE.js chunk from the worker-generated data
+function createChunkFromWorkerData(cx: number, cz: number, chunkData: any): THREE.Group {
+  const { visibleBlocks, waterBlocks, specialObjects } = chunkData;
+  
+  const chunkGroup = new THREE.Group();
+  chunkGroup.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+  chunkGroup.userData = { cx, cz };
+  
+  // Create instanced mesh for each material
+  const instancedMeshes = materials.map(material => 
+    new THREE.InstancedMesh(geometry, material, 5000) // Reduced from MAX_BLOCKS_PER_CHUNK for performance
+  );
+  
+  // Create water mesh
+  const waterMesh = new THREE.InstancedMesh(geometry, waterMaterial, CHUNK_SIZE * CHUNK_SIZE);
+  
+  const instanceCounts = new Array(materials.length).fill(0);
+  let waterCount = 0;
+  
+  const dummy = new THREE.Object3D();
+  
+  // Place all visible blocks
+  for (const block of visibleBlocks) {
+    const { x, y, z, materialIndex } = block;
+    dummy.position.set(x, y, z); // local position inside chunk
+    dummy.updateMatrix();
+    instancedMeshes[materialIndex].setMatrixAt(instanceCounts[materialIndex]++, dummy.matrix);
+  }
+  
+  // Place water blocks
+  for (const block of waterBlocks) {
+    const { x, y, z } = block;
+    dummy.position.set(x, y, z);
+    dummy.updateMatrix();
+    waterMesh.setMatrixAt(waterCount++, dummy.matrix);
+  }
+  
+  // Add the instanced meshes to the chunk
+  instancedMeshes.forEach((mesh, i) => {
+    mesh.count = instanceCounts[i];
+    if (mesh.count > 0) {
+      mesh.instanceMatrix.needsUpdate = true;
+      chunkGroup.add(mesh);
+    }
+  });
+  
+  // Add the water mesh
+  if (waterCount > 0) {
+    waterMesh.count = waterCount;
+    waterMesh.instanceMatrix.needsUpdate = true;
+    chunkGroup.add(waterMesh);
+  }
+  
+  // Add special objects (trees, houses)
+  for (const obj of specialObjects) {
+    if (obj.type === 'tree') {
+      const tree = createTreeFromData(obj.x, obj.y, obj.z);
+      chunkGroup.add(tree);
+    } else if (obj.type === 'house') {
+      const house = createHouseFromData(obj.x, obj.y, obj.z);
+      chunkGroup.add(house);
+    }
+  }
+  
+  return chunkGroup;
+}
+
+// Request a chunk from the worker
+async function requestChunkFromWorker(cx: number, cz: number): Promise<THREE.Group> {
+  const key = chunkKey(cx, cz);
+  
+  return new Promise((resolve, reject) => {
+    if (!chunkWorker) {
+      return reject(new Error('Chunk worker not initialized'));
+    }
+    
+    // Store the pending request
+    pendingChunkRequests.set(key, { resolve, reject });
+    
+    // Request the chunk from the worker
+    chunkWorker.postMessage({
+      type: 'generateChunk',
+      data: { cx, cz }
+    });
+  });
+}
+
 export function setRenderDistance(distance: number) {
   renderDistance = distance;
   lastChunkX = Infinity;
@@ -42,17 +222,33 @@ function getChunkCoord(coord: number): number {
   return Math.floor(coord / CHUNK_SIZE);
 }
 
-function ensureChunkNow(cx: number, cz: number): void {
+async function ensureChunkNow(cx: number, cz: number): Promise<void> {
   const key = chunkKey(cx, cz);
   let chunk: THREE.Group;
   
   if (!chunks.has(key)) {
-    // Only generate and add a new chunk if one doesn't already exist
-    chunk = generateChunk(cx, cz);
-    chunk.visible = true;
-    scene.add(chunk);
-    chunks.set(key, chunk);
-    log(`🆕 Generated new chunk at ${key}`);
+    try {
+      // Use the worker if initialized, otherwise fallback to main thread
+      if (chunkWorker) {
+        chunk = await requestChunkFromWorker(cx, cz);
+      } else {
+        // Fallback to synchronous generation on main thread
+        chunk = generateChunk(cx, cz);
+      }
+      
+      chunk.visible = true;
+      scene.add(chunk);
+      chunks.set(key, chunk);
+      log(`🆕 Generated new chunk at ${key}`);
+    } catch (error) {
+      console.error(`Failed to generate chunk ${key}:`, error);
+      // Fallback to synchronous generation on main thread
+      chunk = generateChunk(cx, cz);
+      chunk.visible = true;
+      scene.add(chunk);
+      chunks.set(key, chunk);
+      log(`🔄 Fallback: generated chunk at ${key} on main thread`);
+    }
   } else {
     // Reuse existing chunk and make it visible
     chunk = chunks.get(key)!;
@@ -68,13 +264,26 @@ function ensureChunkNow(cx: number, cz: number): void {
 function enqueueChunk(cx: number, cz: number) {
   const key = chunkKey(cx, cz);
   if (!chunks.has(key)) {
-    chunkQueue.push(() => {
-      const chunk = generateChunk(cx, cz);
-      chunk.visible = true;
-      scene.add(chunk);
-      chunks.set(key, chunk);
-      chunkLastAccessed.set(key, performance.now());
-      visibleChunkKeys.add(key);
+    chunkQueue.push(async () => {
+      try {
+        let chunk: THREE.Group;
+        
+        // Use the worker if initialized, otherwise fallback to main thread
+        if (chunkWorker) {
+          chunk = await requestChunkFromWorker(cx, cz);
+        } else {
+          // Fallback to synchronous generation on main thread
+          chunk = generateChunk(cx, cz);
+        }
+        
+        chunk.visible = true;
+        scene.add(chunk);
+        chunks.set(key, chunk);
+        chunkLastAccessed.set(key, performance.now());
+        visibleChunkKeys.add(key);
+      } catch (error) {
+        console.error(`Failed to generate queued chunk ${key}:`, error);
+      }
     });
   } else {
     chunkQueue.push(() => {
@@ -305,4 +514,42 @@ export async function prerenderArea(
     // Start generating
     generateNextBatch();
   });
+}
+
+// Add this function to get the actual terrain height at a specific world position
+export function getActualTerrainHeight(x: number, z: number): number {
+  // Get the chunk coordinates for this world position
+  const cx = getChunkCoord(x);
+  const cz = getChunkCoord(z);
+  const key = chunkKey(cx, cz);
+  
+  // Convert to local coordinates within the chunk
+  const localX = Math.floor(x) - cx * CHUNK_SIZE;
+  const localZ = Math.floor(z) - cz * CHUNK_SIZE;
+  
+  // If the chunk exists and is loaded, query its actual height
+  if (chunks.has(key)) {
+    const chunk = chunks.get(key)!;
+    
+    // Try to find the highest block at this x,z position
+    // This is an approximation - in a full implementation, you'd store and query
+    // the actual height data for each x,z coordinate in the chunk
+    let maxHeight = 0;
+    
+    // Use raycasting to find the terrain height
+    const raycaster = new THREE.Raycaster(
+      new THREE.Vector3(x, MAX_HEIGHT + 10, z), // Start from high above
+      new THREE.Vector3(0, -1, 0), // Cast downward
+      0,  // near
+      MAX_HEIGHT + 20 // far - enough to reach ground
+    );
+    
+    const intersects = raycaster.intersectObject(chunk, true);
+    if (intersects.length > 0) {
+      return intersects[0].point.y;
+    }
+  }
+  
+  // Fall back to the terrain generation function if chunk isn't loaded
+  return getTerrainHeightAt(x, z);
 }

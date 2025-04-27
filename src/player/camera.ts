@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { player, playerHeight, playerCharacter, velocityY, onGround, GRAVITY, JUMP_FORCE, gun, createProjectile } from './player';
 import { camera, scene } from '../renderer/renderer';
 import { getTerrainHeightAt } from '../world/terrain';
+import { getActualTerrainHeight } from '../world/chunkmanager';
 import { HumanCharacter } from './playerModel';
 import { Gun } from '../items/gun';
 
@@ -261,7 +262,9 @@ export function updateCamera() {
   _velocityY += GRAVITY * 0.1;
   player.position.y += _velocityY * 0.1; // Use _velocityY, not velocityY
 
-  const groundY = getTerrainHeightAt(player.position.x, player.position.z) + playerHeight;
+  // Use getActualTerrainHeight instead of getTerrainHeightAt for more accurate collision
+  const groundY = getActualTerrainHeight(player.position.x, player.position.z) + playerHeight;
+  
   if (player.position.y <= groundY) {
     player.position.y = groundY;
     _velocityY = 0;

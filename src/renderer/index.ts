@@ -3,7 +3,7 @@ import { player, playerCharacter } from '../player/player';
 import { updateCamera } from '../player/camera';
 import { initInput } from '../input/inputhandler';
 import { initHUD, updateHUD } from '../ui/hud';
-import { prerenderArea, processChunkQueue, updateChunks } from '../world/chunkmanager';
+import { initChunkWorker, prerenderArea, processChunkQueue, updateChunks } from '../world/chunkmanager';
 import { setFlatTerrainMode } from '../world/terrain';
 
 let frameCount = 0;
@@ -13,6 +13,7 @@ function animate() {
   requestAnimationFrame(animate);
   
   const start = performance.now();
+  frameCount++;
   
   // Player position update
   const playerStart = performance.now();
@@ -41,6 +42,12 @@ function animate() {
   renderer.render(scene, camera);
   const renderTime = performance.now() - renderStart;
   
+  // Update FPS counter
+  if (frameCount % 10 === 0) {
+    const fps = Math.round(1000 / (performance.now() - start));
+    document.getElementById('fps').textContent = `FPS: ${fps}`;
+  }
+  
   // Log performance every 100 frames
   if (frameCount % 100 === 0) {
     const performanceEntries = [];
@@ -63,7 +70,35 @@ function animate() {
 }
 setFlatTerrainMode(false); // Enable flat terrain mode for testing
 
+// Initialize all systems
+console.log('🚀 Initializing voxel engine...');
+
+// Initialize the chunk worker first so it's ready when we start generating chunks
+console.log('🧠 Initializing chunk worker...');
+initChunkWorker();
+
 initHUD();
 initInput();
-await prerenderArea(player.position, 25, 5); // 7 chunk radius, 5 chunks per frame
+
+// Show loading screen
+const loadingMessage = document.createElement('div');
+loadingMessage.style.position = 'absolute';
+loadingMessage.style.top = '50%';
+loadingMessage.style.left = '50%';
+loadingMessage.style.transform = 'translate(-50%, -50%)';
+loadingMessage.style.color = 'white';
+loadingMessage.style.fontSize = '24px';
+loadingMessage.style.fontFamily = 'Arial, sans-serif';
+loadingMessage.textContent = 'Loading world...';
+document.body.appendChild(loadingMessage);
+
+// Start prerendering chunks around player
+console.log('🗺️ Prerendering initial chunks...');
+await prerenderArea(player.position, 5, 5); // 5 chunk radius, 5 chunks per frame
+
+// Remove loading message when done
+document.body.removeChild(loadingMessage);
+
+// Start the game loop
+console.log('🎮 Starting game loop');
 animate();

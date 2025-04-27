@@ -3604,6 +3604,74 @@ class PropertyBinding {
     this.setValue = this._setValue_unbound;
   }
 }
+
+class Raycaster {
+  constructor(origin, direction, near = 0, far = Infinity) {
+    this.ray = new Ray(origin, direction);
+    this.near = near;
+    this.far = far;
+    this.camera = null;
+    this.layers = new Layers;
+    this.params = {
+      Mesh: {},
+      Line: { threshold: 1 },
+      LOD: {},
+      Points: { threshold: 1 },
+      Sprite: {}
+    };
+  }
+  set(origin, direction) {
+    this.ray.set(origin, direction);
+  }
+  setFromCamera(coords, camera) {
+    if (camera.isPerspectiveCamera) {
+      this.ray.origin.setFromMatrixPosition(camera.matrixWorld);
+      this.ray.direction.set(coords.x, coords.y, 0.5).unproject(camera).sub(this.ray.origin).normalize();
+      this.camera = camera;
+    } else if (camera.isOrthographicCamera) {
+      this.ray.origin.set(coords.x, coords.y, (camera.near + camera.far) / (camera.near - camera.far)).unproject(camera);
+      this.ray.direction.set(0, 0, -1).transformDirection(camera.matrixWorld);
+      this.camera = camera;
+    } else {
+      console.error("THREE.Raycaster: Unsupported camera type: " + camera.type);
+    }
+  }
+  setFromXRController(controller) {
+    _matrix.identity().extractRotation(controller.matrixWorld);
+    this.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+    this.ray.direction.set(0, 0, -1).applyMatrix4(_matrix);
+    return this;
+  }
+  intersectObject(object, recursive = true, intersects = []) {
+    intersect(object, this, intersects, recursive);
+    intersects.sort(ascSort);
+    return intersects;
+  }
+  intersectObjects(objects, recursive = true, intersects = []) {
+    for (let i = 0, l = objects.length;i < l; i++) {
+      intersect(objects[i], this, intersects, recursive);
+    }
+    intersects.sort(ascSort);
+    return intersects;
+  }
+}
+function ascSort(a, b) {
+  return a.distance - b.distance;
+}
+function intersect(object, raycaster, intersects, recursive) {
+  let propagate = true;
+  if (object.layers.test(raycaster.layers)) {
+    const result = object.raycast(raycaster, intersects);
+    if (result === false)
+      propagate = false;
+  }
+  if (propagate === true && recursive === true) {
+    const children = object.children;
+    for (let i = 0, l = children.length;i < l; i++) {
+      intersect(children[i], raycaster, intersects, true);
+    }
+  }
+}
 function getByteLength(width, height, format, type) {
   const typeByteLength = getTextureTypeByteLength(type);
   switch (format) {
@@ -3710,7 +3778,7 @@ var REVISION = "175", CullFaceNone = 0, CullFaceBack = 1, CullFaceFront = 2, PCF
 	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
 }`, default_fragment = `void main() {
 	gl_FragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
-}`, ShaderMaterial, Camera, _v3$1, _minTarget, _maxTarget, PerspectiveCamera, fov = -90, aspect = 1, CubeCamera, CubeTexture, WebGLCubeRenderTarget, Group, _moveEvent, Scene, DataTexture, InstancedBufferAttribute, _instanceLocalMatrix, _instanceWorldMatrix, _instanceIntersects, _box3, _identity, _mesh$1, _sphere$4, InstancedMesh, _vector1, _vector2, _normalMatrix, _sphere$3, _vector$6, DepthTexture, CylinderGeometry, ConeGeometry, PlaneGeometry, SphereGeometry, MeshStandardMaterial, MeshLambertMaterial, MeshDepthMaterial, MeshDistanceMaterial, CubicInterpolant, LinearInterpolant, DiscreteInterpolant, BooleanKeyframeTrack, ColorKeyframeTrack, NumberKeyframeTrack, QuaternionLinearInterpolant, QuaternionKeyframeTrack, StringKeyframeTrack, VectorKeyframeTrack, DefaultLoadingManager, Light, _projScreenMatrix$1, _lightPositionWorld$1, _lookTarget$1, OrthographicCamera, DirectionalLightShadow, DirectionalLight, AmbientLight, ArrayCamera, _RESERVED_CHARS_RE = "\\[\\]\\.:\\/", _reservedRe, _wordChar, _wordCharOrDot, _directoryRe, _nodeRe, _objectRe, _propertyRe, _trackRe, _supportedObjectNames, _controlInterpolantsResultBuffer;
+}`, ShaderMaterial, Camera, _v3$1, _minTarget, _maxTarget, PerspectiveCamera, fov = -90, aspect = 1, CubeCamera, CubeTexture, WebGLCubeRenderTarget, Group, _moveEvent, Scene, DataTexture, InstancedBufferAttribute, _instanceLocalMatrix, _instanceWorldMatrix, _instanceIntersects, _box3, _identity, _mesh$1, _sphere$4, InstancedMesh, _vector1, _vector2, _normalMatrix, _sphere$3, _vector$6, DepthTexture, CylinderGeometry, ConeGeometry, PlaneGeometry, SphereGeometry, MeshStandardMaterial, MeshLambertMaterial, MeshDepthMaterial, MeshDistanceMaterial, CubicInterpolant, LinearInterpolant, DiscreteInterpolant, BooleanKeyframeTrack, ColorKeyframeTrack, NumberKeyframeTrack, QuaternionLinearInterpolant, QuaternionKeyframeTrack, StringKeyframeTrack, VectorKeyframeTrack, DefaultLoadingManager, Light, _projScreenMatrix$1, _lightPositionWorld$1, _lookTarget$1, OrthographicCamera, DirectionalLightShadow, DirectionalLight, AmbientLight, ArrayCamera, _RESERVED_CHARS_RE = "\\[\\]\\.:\\/", _reservedRe, _wordChar, _wordCharOrDot, _directoryRe, _nodeRe, _objectRe, _propertyRe, _trackRe, _supportedObjectNames, _controlInterpolantsResultBuffer, _matrix;
 var init_three_core = __esm(() => {
   _lut = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "0a", "0b", "0c", "0d", "0e", "0f", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "1a", "1b", "1c", "1d", "1e", "1f", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "2a", "2b", "2c", "2d", "2e", "2f", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "3a", "3b", "3c", "3d", "3e", "3f", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "4a", "4b", "4c", "4d", "4e", "4f", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "5a", "5b", "5c", "5d", "5e", "5f", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69", "6a", "6b", "6c", "6d", "6e", "6f", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "7a", "7b", "7c", "7d", "7e", "7f", "80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "8a", "8b", "8c", "8d", "8e", "8f", "90", "91", "92", "93", "94", "95", "96", "97", "98", "99", "9a", "9b", "9c", "9d", "9e", "9f", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "aa", "ab", "ac", "ad", "ae", "af", "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "be", "bf", "c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "ca", "cb", "cc", "cd", "ce", "cf", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "da", "db", "dc", "dd", "de", "df", "e0", "e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "ea", "eb", "ec", "ed", "ee", "ef", "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "fa", "fb", "fc", "fd", "fe", "ff"];
   DEG2RAD = Math.PI / 180;
@@ -9666,6 +9734,7 @@ var init_three_core = __esm(() => {
     ]
   ];
   _controlInterpolantsResultBuffer = new Float32Array(1);
+  _matrix = /* @__PURE__ */ new Matrix4;
   if (typeof __THREE_DEVTOOLS__ !== "undefined") {
     __THREE_DEVTOOLS__.dispatchEvent(new CustomEvent("register", { detail: {
       revision: REVISION
@@ -23706,17 +23775,152 @@ var init_terrain = __esm(() => {
   geometry = new BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
 });
 
+// src/world/special-objects.ts
+function createTreeFromData(x, y, z) {
+  const tree = new Group;
+  const trunkMaterial = new MeshLambertMaterial({ color: 9127187 });
+  const trunk = new Mesh(new BoxGeometry(0.6, 4, 0.6), trunkMaterial);
+  trunk.position.set(x, y + 2, z);
+  tree.add(trunk);
+  const leavesMaterial = new MeshLambertMaterial({ color: 2981170 });
+  const leaves = new Mesh(new SphereGeometry(2, 8, 8), leavesMaterial);
+  leaves.position.set(x, y + 5, z);
+  tree.add(leaves);
+  return tree;
+}
+function createHouseFromData(x, y, z) {
+  const house = new Group;
+  const base = new Mesh(new BoxGeometry(4, 3, 4), new MeshLambertMaterial({ color: 9127187 }));
+  base.position.set(x, y + 1.5, z);
+  house.add(base);
+  const roof = new Mesh(new ConeGeometry(3, 2, 4), new MeshLambertMaterial({ color: 16711680 }));
+  roof.position.set(x, y + 4, z);
+  house.add(roof);
+  return house;
+}
+var init_special_objects = __esm(() => {
+  init_three_module();
+});
+
 // src/world/chunkmanager.ts
 var exports_chunkmanager = {};
 __export(exports_chunkmanager, {
   updateChunks: () => updateChunks,
   setRenderDistance: () => setRenderDistance,
   processChunkQueue: () => processChunkQueue,
-  prerenderArea: () => prerenderArea
+  prerenderArea: () => prerenderArea,
+  initChunkWorker: () => initChunkWorker,
+  getActualTerrainHeight: () => getActualTerrainHeight
 });
 function log(...args) {
   if (DEBUG)
     console.log(...args);
+}
+function initChunkWorker() {
+  if (chunkWorker) {
+    return;
+  }
+  chunkWorker = new Worker("chunk-worker.js");
+  chunkWorker.onmessage = (e) => {
+    const { type, data } = e.data;
+    switch (type) {
+      case "initialized":
+        log("\uD83E\uDDE0 Chunk worker initialized and ready");
+        break;
+      case "chunkGenerated":
+        const { cx, cz, chunkData } = data;
+        const key = chunkKey(cx, cz);
+        try {
+          const chunk = createChunkFromWorkerData(cx, cz, chunkData);
+          const request = pendingChunkRequests.get(key);
+          if (request) {
+            request.resolve(chunk);
+            pendingChunkRequests.delete(key);
+          }
+        } catch (error) {
+          console.error("Error creating chunk from worker data:", error);
+          const request = pendingChunkRequests.get(key);
+          if (request) {
+            request.reject(new Error(`Failed to create chunk from worker data: ${error}`));
+            pendingChunkRequests.delete(key);
+          }
+        }
+        break;
+      case "error":
+        const errorKey = chunkKey(data.cx, data.cz);
+        console.error(`Error generating chunk ${errorKey}: ${data.message}`);
+        const errorRequest = pendingChunkRequests.get(errorKey);
+        if (errorRequest) {
+          errorRequest.reject(new Error(data.message));
+          pendingChunkRequests.delete(errorKey);
+        }
+        break;
+    }
+  };
+  chunkWorker.postMessage({
+    type: "init",
+    data: {
+      simplexNoiseUrl: "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js"
+    }
+  });
+}
+function createChunkFromWorkerData(cx, cz, chunkData) {
+  const { visibleBlocks, waterBlocks, specialObjects } = chunkData;
+  const chunkGroup = new Group;
+  chunkGroup.position.set(cx * CHUNK_SIZE2, 0, cz * CHUNK_SIZE2);
+  chunkGroup.userData = { cx, cz };
+  const instancedMeshes = materials.map((material) => new InstancedMesh(geometry2, material, 5000));
+  const waterMesh = new InstancedMesh(geometry2, waterMaterial2, CHUNK_SIZE2 * CHUNK_SIZE2);
+  const instanceCounts = new Array(materials.length).fill(0);
+  let waterCount = 0;
+  const dummy = new Object3D;
+  for (const block of visibleBlocks) {
+    const { x, y, z, materialIndex } = block;
+    dummy.position.set(x, y, z);
+    dummy.updateMatrix();
+    instancedMeshes[materialIndex].setMatrixAt(instanceCounts[materialIndex]++, dummy.matrix);
+  }
+  for (const block of waterBlocks) {
+    const { x, y, z } = block;
+    dummy.position.set(x, y, z);
+    dummy.updateMatrix();
+    waterMesh.setMatrixAt(waterCount++, dummy.matrix);
+  }
+  instancedMeshes.forEach((mesh, i) => {
+    mesh.count = instanceCounts[i];
+    if (mesh.count > 0) {
+      mesh.instanceMatrix.needsUpdate = true;
+      chunkGroup.add(mesh);
+    }
+  });
+  if (waterCount > 0) {
+    waterMesh.count = waterCount;
+    waterMesh.instanceMatrix.needsUpdate = true;
+    chunkGroup.add(waterMesh);
+  }
+  for (const obj of specialObjects) {
+    if (obj.type === "tree") {
+      const tree = createTreeFromData(obj.x, obj.y, obj.z);
+      chunkGroup.add(tree);
+    } else if (obj.type === "house") {
+      const house = createHouseFromData(obj.x, obj.y, obj.z);
+      chunkGroup.add(house);
+    }
+  }
+  return chunkGroup;
+}
+async function requestChunkFromWorker(cx, cz) {
+  const key = chunkKey(cx, cz);
+  return new Promise((resolve, reject) => {
+    if (!chunkWorker) {
+      return reject(new Error("Chunk worker not initialized"));
+    }
+    pendingChunkRequests.set(key, { resolve, reject });
+    chunkWorker.postMessage({
+      type: "generateChunk",
+      data: { cx, cz }
+    });
+  });
 }
 function setRenderDistance(distance) {
   renderDistance = distance;
@@ -23729,15 +23933,28 @@ function chunkKey(x, z) {
 function getChunkCoord(coord) {
   return Math.floor(coord / CHUNK_SIZE2);
 }
-function ensureChunkNow(cx, cz) {
+async function ensureChunkNow(cx, cz) {
   const key = chunkKey(cx, cz);
   let chunk;
   if (!chunks.has(key)) {
-    chunk = generateChunk(cx, cz);
-    chunk.visible = true;
-    scene.add(chunk);
-    chunks.set(key, chunk);
-    log(`\uD83C\uDD95 Generated new chunk at ${key}`);
+    try {
+      if (chunkWorker) {
+        chunk = await requestChunkFromWorker(cx, cz);
+      } else {
+        chunk = generateChunk(cx, cz);
+      }
+      chunk.visible = true;
+      scene.add(chunk);
+      chunks.set(key, chunk);
+      log(`\uD83C\uDD95 Generated new chunk at ${key}`);
+    } catch (error) {
+      console.error(`Failed to generate chunk ${key}:`, error);
+      chunk = generateChunk(cx, cz);
+      chunk.visible = true;
+      scene.add(chunk);
+      chunks.set(key, chunk);
+      log(`\uD83D\uDD04 Fallback: generated chunk at ${key} on main thread`);
+    }
   } else {
     chunk = chunks.get(key);
     chunk.visible = true;
@@ -23749,13 +23966,22 @@ function ensureChunkNow(cx, cz) {
 function enqueueChunk(cx, cz) {
   const key = chunkKey(cx, cz);
   if (!chunks.has(key)) {
-    chunkQueue.push(() => {
-      const chunk = generateChunk(cx, cz);
-      chunk.visible = true;
-      scene.add(chunk);
-      chunks.set(key, chunk);
-      chunkLastAccessed.set(key, performance.now());
-      visibleChunkKeys.add(key);
+    chunkQueue.push(async () => {
+      try {
+        let chunk;
+        if (chunkWorker) {
+          chunk = await requestChunkFromWorker(cx, cz);
+        } else {
+          chunk = generateChunk(cx, cz);
+        }
+        chunk.visible = true;
+        scene.add(chunk);
+        chunks.set(key, chunk);
+        chunkLastAccessed.set(key, performance.now());
+        visibleChunkKeys.add(key);
+      } catch (error) {
+        console.error(`Failed to generate queued chunk ${key}:`, error);
+      }
     });
   } else {
     chunkQueue.push(() => {
@@ -23911,14 +24137,45 @@ async function prerenderArea(centerPosition, radius = 5, maxPerFrame = 4) {
     generateNextBatch();
   });
 }
-var CHUNK_SIZE2 = 16, MAX_HEIGHT2 = 300, renderDistance = 3, lastChunkX = Infinity, lastChunkZ = Infinity, chunks, chunkQueue, visibleChunkKeys, DEBUG = true, MAX_CACHED_CHUNKS = 100, CHUNK_UNLOAD_DISTANCE, chunkLastAccessed, frustum, projScreenMatrix;
+function getActualTerrainHeight(x, z) {
+  const cx = getChunkCoord(x);
+  const cz = getChunkCoord(z);
+  const key = chunkKey(cx, cz);
+  const localX = Math.floor(x) - cx * CHUNK_SIZE2;
+  const localZ = Math.floor(z) - cz * CHUNK_SIZE2;
+  if (chunks.has(key)) {
+    const chunk = chunks.get(key);
+    let maxHeight = 0;
+    const raycaster = new Raycaster(new Vector3(x, MAX_HEIGHT2 + 10, z), new Vector3(0, -1, 0), 0, MAX_HEIGHT2 + 20);
+    const intersects = raycaster.intersectObject(chunk, true);
+    if (intersects.length > 0) {
+      return intersects[0].point.y;
+    }
+  }
+  return getTerrainHeightAt(x, z);
+}
+var CHUNK_SIZE2 = 16, MAX_HEIGHT2 = 300, renderDistance = 3, lastChunkX = Infinity, lastChunkZ = Infinity, chunks, chunkQueue, visibleChunkKeys, chunkWorker = null, pendingChunkRequests, grassMaterial2, dirtMaterial2, sandMaterial2, rockMaterial2, snowMaterial2, waterMaterial2, geometry2, materials, DEBUG = true, MAX_CACHED_CHUNKS = 100, CHUNK_UNLOAD_DISTANCE, chunkLastAccessed, frustum, projScreenMatrix;
 var init_chunkmanager = __esm(() => {
   init_three_module();
   init_renderer();
   init_terrain();
+  init_special_objects();
   chunks = new Map;
   chunkQueue = [];
   visibleChunkKeys = new Set;
+  pendingChunkRequests = new Map;
+  grassMaterial2 = new MeshLambertMaterial({ color: 4034880 });
+  dirtMaterial2 = new MeshLambertMaterial({ color: 9127187 });
+  sandMaterial2 = new MeshLambertMaterial({ color: 14596231 });
+  rockMaterial2 = new MeshLambertMaterial({ color: 8421504 });
+  snowMaterial2 = new MeshLambertMaterial({ color: 16777215 });
+  waterMaterial2 = new MeshLambertMaterial({
+    color: 39423,
+    transparent: true,
+    opacity: 0.7
+  });
+  geometry2 = new BoxGeometry(1, 1, 1);
+  materials = [grassMaterial2, dirtMaterial2, sandMaterial2, rockMaterial2, snowMaterial2];
   CHUNK_UNLOAD_DISTANCE = renderDistance + 5;
   chunkLastAccessed = new Map;
   frustum = new Frustum;
@@ -23933,7 +24190,7 @@ init_player();
 init_three_module();
 init_player();
 init_renderer();
-init_terrain();
+init_chunkmanager();
 var canShoot = true;
 var SHOOT_COOLDOWN = 0.3;
 var shootCooldownTimer = 0;
@@ -24115,7 +24372,7 @@ function updateCamera() {
   }
   _velocityY += GRAVITY * 0.1;
   player.position.y += _velocityY * 0.1;
-  const groundY = getTerrainHeightAt(player.position.x, player.position.z) + playerHeight;
+  const groundY = getActualTerrainHeight(player.position.x, player.position.z) + playerHeight;
   if (player.position.y <= groundY) {
     player.position.y = groundY;
     _velocityY = 0;
@@ -24225,6 +24482,7 @@ var renderer2 = initRenderer();
 function animate() {
   requestAnimationFrame(animate);
   const start = performance.now();
+  frameCount2++;
   const playerStart = performance.now();
   playerCharacter.position.copy(player.position);
   const playerTime = performance.now() - playerStart;
@@ -24241,6 +24499,10 @@ function animate() {
   const renderStart = performance.now();
   renderer2.render(scene, camera);
   const renderTime = performance.now() - renderStart;
+  if (frameCount2 % 10 === 0) {
+    const fps = Math.round(1000 / (performance.now() - start));
+    document.getElementById("fps").textContent = `FPS: ${fps}`;
+  }
   if (frameCount2 % 100 === 0) {
     const performanceEntries = [];
     if (playerTime > 2)
@@ -24260,7 +24522,23 @@ function animate() {
   }
 }
 setFlatTerrainMode(false);
+console.log("\uD83D\uDE80 Initializing voxel engine...");
+console.log("\uD83E\uDDE0 Initializing chunk worker...");
+initChunkWorker();
 initHUD();
 initInput();
-await prerenderArea(player.position, 25, 5);
+var loadingMessage = document.createElement("div");
+loadingMessage.style.position = "absolute";
+loadingMessage.style.top = "50%";
+loadingMessage.style.left = "50%";
+loadingMessage.style.transform = "translate(-50%, -50%)";
+loadingMessage.style.color = "white";
+loadingMessage.style.fontSize = "24px";
+loadingMessage.style.fontFamily = "Arial, sans-serif";
+loadingMessage.textContent = "Loading world...";
+document.body.appendChild(loadingMessage);
+console.log("\uD83D\uDDFA️ Prerendering initial chunks...");
+await prerenderArea(player.position, 5, 5);
+document.body.removeChild(loadingMessage);
+console.log("\uD83C\uDFAE Starting game loop");
 animate();
