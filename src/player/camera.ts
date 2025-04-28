@@ -261,19 +261,37 @@ export function updateCamera() {
     player.position.add(movement);
   }
 
-  // Gravity & terrain collision - ONLY UPDATE ONCE
+  // Gravity & terrain collision
   _velocityY += GRAVITY * 0.1;
   player.position.y += _velocityY * 0.1; // Use _velocityY, not velocityY
 
-  // Use getActualTerrainHeight instead of getTerrainHeightAt for more accurate collision
-  const groundY = getActualTerrainHeight(player.position.x, player.position.z) + playerHeight;
-  
-  if (player.position.y <= groundY) {
-    player.position.y = groundY;
-    _velocityY = 0;
-    _onGround = true;
-  } else {
-    _onGround = false;
+  // Use a try/catch to handle potential errors with terrain height calculation
+  try {
+    // Use getActualTerrainHeight instead of getTerrainHeightAt for more accurate collision
+    const groundY = getActualTerrainHeight(player.position.x, player.position.z);
+    const playerGroundLevel = groundY + playerHeight;
+    
+    // Add a sanity check to prevent extreme values
+    if (isFinite(playerGroundLevel) && Math.abs(playerGroundLevel) < 100) {
+      if (player.position.y <= playerGroundLevel) {
+        player.position.y = playerGroundLevel;
+        _velocityY = 0;
+        _onGround = true;
+      } else {
+        _onGround = false;
+      }
+    } else {
+      console.warn('Invalid ground height detected:', playerGroundLevel);
+    }
+  } catch (error) {
+    console.error('Error calculating ground height:', error);
+    // Use a fallback terrain height to prevent falling forever
+    const fallbackGroundHeight = getTerrainHeightAt(player.position.x, player.position.z);
+    if (player.position.y <= fallbackGroundHeight + playerHeight) {
+      player.position.y = fallbackGroundHeight + playerHeight;
+      _velocityY = 0;
+      _onGround = true;
+    }
   }
 
   // Jump

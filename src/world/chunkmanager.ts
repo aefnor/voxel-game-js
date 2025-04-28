@@ -418,7 +418,7 @@ export function processChunkQueue(limit: number = 4) {
     const task = chunkQueue.shift();
     task?.();
   }
-  log(`🟩 Visible Chunks (${visibleChunkKeys.size}): ${[...visibleChunkKeys].join(', ')}`);
+  // log(`🟩 Visible Chunks (${visibleChunkKeys.size}): ${[...visibleChunkKeys].join(', ')}`);
 }
 
 // Add this new function to manage chunk caching
@@ -607,11 +607,6 @@ export function getActualTerrainHeight(x: number, z: number): number {
   if (chunks.has(key)) {
     const chunk = chunks.get(key)!;
     
-    // Try to find the highest block at this x,z position
-    // This is an approximation - in a full implementation, you'd store and query
-    // the actual height data for each x,z coordinate in the chunk
-    let maxHeight = 0;
-    
     // Use raycasting to find the terrain height
     const raycaster = new THREE.Raycaster(
       new THREE.Vector3(x, MAX_HEIGHT + 10, z), // Start from high above
@@ -619,6 +614,9 @@ export function getActualTerrainHeight(x: number, z: number): number {
       0,  // near
       MAX_HEIGHT + 20 // far - enough to reach ground
     );
+    
+    // Set the camera property on the raycaster to fix sprite raycasting issues
+    raycaster.camera = camera;
     
     const intersects = raycaster.intersectObject(chunk, true);
     if (intersects.length > 0) {

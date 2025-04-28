@@ -2570,6 +2570,295 @@ class WebXRController {
   }
 }
 
+class InterleavedBuffer {
+  constructor(array, stride) {
+    this.isInterleavedBuffer = true;
+    this.array = array;
+    this.stride = stride;
+    this.count = array !== undefined ? array.length / stride : 0;
+    this.usage = StaticDrawUsage;
+    this.updateRanges = [];
+    this.version = 0;
+    this.uuid = generateUUID();
+  }
+  onUploadCallback() {}
+  set needsUpdate(value) {
+    if (value === true)
+      this.version++;
+  }
+  setUsage(value) {
+    this.usage = value;
+    return this;
+  }
+  addUpdateRange(start, count) {
+    this.updateRanges.push({ start, count });
+  }
+  clearUpdateRanges() {
+    this.updateRanges.length = 0;
+  }
+  copy(source) {
+    this.array = new source.array.constructor(source.array);
+    this.count = source.count;
+    this.stride = source.stride;
+    this.usage = source.usage;
+    return this;
+  }
+  copyAt(index1, interleavedBuffer, index2) {
+    index1 *= this.stride;
+    index2 *= interleavedBuffer.stride;
+    for (let i = 0, l = this.stride;i < l; i++) {
+      this.array[index1 + i] = interleavedBuffer.array[index2 + i];
+    }
+    return this;
+  }
+  set(value, offset = 0) {
+    this.array.set(value, offset);
+    return this;
+  }
+  clone(data) {
+    if (data.arrayBuffers === undefined) {
+      data.arrayBuffers = {};
+    }
+    if (this.array.buffer._uuid === undefined) {
+      this.array.buffer._uuid = generateUUID();
+    }
+    if (data.arrayBuffers[this.array.buffer._uuid] === undefined) {
+      data.arrayBuffers[this.array.buffer._uuid] = this.array.slice(0).buffer;
+    }
+    const array = new this.array.constructor(data.arrayBuffers[this.array.buffer._uuid]);
+    const ib = new this.constructor(array, this.stride);
+    ib.setUsage(this.usage);
+    return ib;
+  }
+  onUpload(callback) {
+    this.onUploadCallback = callback;
+    return this;
+  }
+  toJSON(data) {
+    if (data.arrayBuffers === undefined) {
+      data.arrayBuffers = {};
+    }
+    if (this.array.buffer._uuid === undefined) {
+      this.array.buffer._uuid = generateUUID();
+    }
+    if (data.arrayBuffers[this.array.buffer._uuid] === undefined) {
+      data.arrayBuffers[this.array.buffer._uuid] = Array.from(new Uint32Array(this.array.buffer));
+    }
+    return {
+      uuid: this.uuid,
+      buffer: this.array.buffer._uuid,
+      type: this.array.constructor.name,
+      stride: this.stride
+    };
+  }
+}
+
+class InterleavedBufferAttribute {
+  constructor(interleavedBuffer, itemSize, offset, normalized = false) {
+    this.isInterleavedBufferAttribute = true;
+    this.name = "";
+    this.data = interleavedBuffer;
+    this.itemSize = itemSize;
+    this.offset = offset;
+    this.normalized = normalized;
+  }
+  get count() {
+    return this.data.count;
+  }
+  get array() {
+    return this.data.array;
+  }
+  set needsUpdate(value) {
+    this.data.needsUpdate = value;
+  }
+  applyMatrix4(m) {
+    for (let i = 0, l = this.data.count;i < l; i++) {
+      _vector$7.fromBufferAttribute(this, i);
+      _vector$7.applyMatrix4(m);
+      this.setXYZ(i, _vector$7.x, _vector$7.y, _vector$7.z);
+    }
+    return this;
+  }
+  applyNormalMatrix(m) {
+    for (let i = 0, l = this.count;i < l; i++) {
+      _vector$7.fromBufferAttribute(this, i);
+      _vector$7.applyNormalMatrix(m);
+      this.setXYZ(i, _vector$7.x, _vector$7.y, _vector$7.z);
+    }
+    return this;
+  }
+  transformDirection(m) {
+    for (let i = 0, l = this.count;i < l; i++) {
+      _vector$7.fromBufferAttribute(this, i);
+      _vector$7.transformDirection(m);
+      this.setXYZ(i, _vector$7.x, _vector$7.y, _vector$7.z);
+    }
+    return this;
+  }
+  getComponent(index, component) {
+    let value = this.array[index * this.data.stride + this.offset + component];
+    if (this.normalized)
+      value = denormalize(value, this.array);
+    return value;
+  }
+  setComponent(index, component, value) {
+    if (this.normalized)
+      value = normalize(value, this.array);
+    this.data.array[index * this.data.stride + this.offset + component] = value;
+    return this;
+  }
+  setX(index, x) {
+    if (this.normalized)
+      x = normalize(x, this.array);
+    this.data.array[index * this.data.stride + this.offset] = x;
+    return this;
+  }
+  setY(index, y) {
+    if (this.normalized)
+      y = normalize(y, this.array);
+    this.data.array[index * this.data.stride + this.offset + 1] = y;
+    return this;
+  }
+  setZ(index, z) {
+    if (this.normalized)
+      z = normalize(z, this.array);
+    this.data.array[index * this.data.stride + this.offset + 2] = z;
+    return this;
+  }
+  setW(index, w) {
+    if (this.normalized)
+      w = normalize(w, this.array);
+    this.data.array[index * this.data.stride + this.offset + 3] = w;
+    return this;
+  }
+  getX(index) {
+    let x = this.data.array[index * this.data.stride + this.offset];
+    if (this.normalized)
+      x = denormalize(x, this.array);
+    return x;
+  }
+  getY(index) {
+    let y = this.data.array[index * this.data.stride + this.offset + 1];
+    if (this.normalized)
+      y = denormalize(y, this.array);
+    return y;
+  }
+  getZ(index) {
+    let z = this.data.array[index * this.data.stride + this.offset + 2];
+    if (this.normalized)
+      z = denormalize(z, this.array);
+    return z;
+  }
+  getW(index) {
+    let w = this.data.array[index * this.data.stride + this.offset + 3];
+    if (this.normalized)
+      w = denormalize(w, this.array);
+    return w;
+  }
+  setXY(index, x, y) {
+    index = index * this.data.stride + this.offset;
+    if (this.normalized) {
+      x = normalize(x, this.array);
+      y = normalize(y, this.array);
+    }
+    this.data.array[index + 0] = x;
+    this.data.array[index + 1] = y;
+    return this;
+  }
+  setXYZ(index, x, y, z) {
+    index = index * this.data.stride + this.offset;
+    if (this.normalized) {
+      x = normalize(x, this.array);
+      y = normalize(y, this.array);
+      z = normalize(z, this.array);
+    }
+    this.data.array[index + 0] = x;
+    this.data.array[index + 1] = y;
+    this.data.array[index + 2] = z;
+    return this;
+  }
+  setXYZW(index, x, y, z, w) {
+    index = index * this.data.stride + this.offset;
+    if (this.normalized) {
+      x = normalize(x, this.array);
+      y = normalize(y, this.array);
+      z = normalize(z, this.array);
+      w = normalize(w, this.array);
+    }
+    this.data.array[index + 0] = x;
+    this.data.array[index + 1] = y;
+    this.data.array[index + 2] = z;
+    this.data.array[index + 3] = w;
+    return this;
+  }
+  clone(data) {
+    if (data === undefined) {
+      console.log("THREE.InterleavedBufferAttribute.clone(): Cloning an interleaved buffer attribute will de-interleave buffer data.");
+      const array = [];
+      for (let i = 0;i < this.count; i++) {
+        const index = i * this.data.stride + this.offset;
+        for (let j = 0;j < this.itemSize; j++) {
+          array.push(this.data.array[index + j]);
+        }
+      }
+      return new BufferAttribute(new this.array.constructor(array), this.itemSize, this.normalized);
+    } else {
+      if (data.interleavedBuffers === undefined) {
+        data.interleavedBuffers = {};
+      }
+      if (data.interleavedBuffers[this.data.uuid] === undefined) {
+        data.interleavedBuffers[this.data.uuid] = this.data.clone(data);
+      }
+      return new InterleavedBufferAttribute(data.interleavedBuffers[this.data.uuid], this.itemSize, this.offset, this.normalized);
+    }
+  }
+  toJSON(data) {
+    if (data === undefined) {
+      console.log("THREE.InterleavedBufferAttribute.toJSON(): Serializing an interleaved buffer attribute will de-interleave buffer data.");
+      const array = [];
+      for (let i = 0;i < this.count; i++) {
+        const index = i * this.data.stride + this.offset;
+        for (let j = 0;j < this.itemSize; j++) {
+          array.push(this.data.array[index + j]);
+        }
+      }
+      return {
+        itemSize: this.itemSize,
+        type: this.array.constructor.name,
+        array,
+        normalized: this.normalized
+      };
+    } else {
+      if (data.interleavedBuffers === undefined) {
+        data.interleavedBuffers = {};
+      }
+      if (data.interleavedBuffers[this.data.uuid] === undefined) {
+        data.interleavedBuffers[this.data.uuid] = this.data.toJSON(data);
+      }
+      return {
+        isInterleavedBufferAttribute: true,
+        itemSize: this.itemSize,
+        data: this.data.uuid,
+        offset: this.offset,
+        normalized: this.normalized
+      };
+    }
+  }
+}
+function transformVertex(vertexPosition, mvPosition, center, scale, sin, cos) {
+  _alignedPosition.subVectors(vertexPosition, center).addScalar(0.5).multiply(scale);
+  if (sin !== undefined) {
+    _rotatedPosition.x = cos * _alignedPosition.x - sin * _alignedPosition.y;
+    _rotatedPosition.y = sin * _alignedPosition.x + cos * _alignedPosition.y;
+  } else {
+    _rotatedPosition.copy(_alignedPosition);
+  }
+  vertexPosition.copy(mvPosition);
+  vertexPosition.x += _rotatedPosition.x;
+  vertexPosition.y += _rotatedPosition.y;
+  vertexPosition.applyMatrix4(_viewWorldMatrix);
+}
+
 class Plane {
   constructor(normal = new Vector3(1, 0, 0), constant = 0) {
     this.isPlane = true;
@@ -3778,7 +4067,7 @@ var REVISION = "175", CullFaceNone = 0, CullFaceBack = 1, CullFaceFront = 2, PCF
 	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
 }`, default_fragment = `void main() {
 	gl_FragColor = vec4( 1.0, 0.0, 0.0, 1.0 );
-}`, ShaderMaterial, Camera, _v3$1, _minTarget, _maxTarget, PerspectiveCamera, fov = -90, aspect = 1, CubeCamera, CubeTexture, WebGLCubeRenderTarget, Group, _moveEvent, Scene, DataTexture, InstancedBufferAttribute, _instanceLocalMatrix, _instanceWorldMatrix, _instanceIntersects, _box3, _identity, _mesh$1, _sphere$4, InstancedMesh, _vector1, _vector2, _normalMatrix, _sphere$3, _vector$6, DepthTexture, CylinderGeometry, ConeGeometry, PlaneGeometry, SphereGeometry, MeshStandardMaterial, MeshLambertMaterial, MeshDepthMaterial, MeshDistanceMaterial, CubicInterpolant, LinearInterpolant, DiscreteInterpolant, BooleanKeyframeTrack, ColorKeyframeTrack, NumberKeyframeTrack, QuaternionLinearInterpolant, QuaternionKeyframeTrack, StringKeyframeTrack, VectorKeyframeTrack, DefaultLoadingManager, Light, _projScreenMatrix$1, _lightPositionWorld$1, _lookTarget$1, OrthographicCamera, DirectionalLightShadow, DirectionalLight, AmbientLight, ArrayCamera, _RESERVED_CHARS_RE = "\\[\\]\\.:\\/", _reservedRe, _wordChar, _wordCharOrDot, _directoryRe, _nodeRe, _objectRe, _propertyRe, _trackRe, _supportedObjectNames, _controlInterpolantsResultBuffer, _matrix;
+}`, ShaderMaterial, Camera, _v3$1, _minTarget, _maxTarget, PerspectiveCamera, fov = -90, aspect = 1, CubeCamera, CubeTexture, WebGLCubeRenderTarget, Group, _moveEvent, Scene, _vector$7, SpriteMaterial, _geometry, _intersectPoint, _worldScale, _mvPosition, _alignedPosition, _rotatedPosition, _viewWorldMatrix, _vA, _vB, _vC, _uvA, _uvB, _uvC, Sprite, DataTexture, InstancedBufferAttribute, _instanceLocalMatrix, _instanceWorldMatrix, _instanceIntersects, _box3, _identity, _mesh$1, _sphere$4, InstancedMesh, _vector1, _vector2, _normalMatrix, _sphere$3, _vector$6, CanvasTexture, DepthTexture, CylinderGeometry, ConeGeometry, PlaneGeometry, SphereGeometry, MeshStandardMaterial, MeshLambertMaterial, MeshDepthMaterial, MeshDistanceMaterial, CubicInterpolant, LinearInterpolant, DiscreteInterpolant, BooleanKeyframeTrack, ColorKeyframeTrack, NumberKeyframeTrack, QuaternionLinearInterpolant, QuaternionKeyframeTrack, StringKeyframeTrack, VectorKeyframeTrack, DefaultLoadingManager, Light, _projScreenMatrix$1, _lightPositionWorld$1, _lookTarget$1, OrthographicCamera, DirectionalLightShadow, DirectionalLight, AmbientLight, ArrayCamera, _RESERVED_CHARS_RE = "\\[\\]\\.:\\/", _reservedRe, _wordChar, _wordCharOrDot, _directoryRe, _nodeRe, _objectRe, _propertyRe, _trackRe, _supportedObjectNames, _controlInterpolantsResultBuffer, _matrix;
 var init_three_core = __esm(() => {
   _lut = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "0a", "0b", "0c", "0d", "0e", "0f", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "1a", "1b", "1c", "1d", "1e", "1f", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "2a", "2b", "2c", "2d", "2e", "2f", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "3a", "3b", "3c", "3d", "3e", "3f", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "4a", "4b", "4c", "4d", "4e", "4f", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "5a", "5b", "5c", "5d", "5e", "5f", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69", "6a", "6b", "6c", "6d", "6e", "6f", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "7a", "7b", "7c", "7d", "7e", "7f", "80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "8a", "8b", "8c", "8d", "8e", "8f", "90", "91", "92", "93", "94", "95", "96", "97", "98", "99", "9a", "9b", "9c", "9d", "9e", "9f", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "aa", "ab", "ac", "ad", "ae", "af", "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "be", "bf", "c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "ca", "cb", "cc", "cd", "ce", "cf", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "da", "db", "dc", "dd", "de", "df", "e0", "e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "ea", "eb", "ec", "ed", "ee", "ef", "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "fa", "fb", "fc", "fd", "fe", "ff"];
   DEG2RAD = Math.PI / 180;
@@ -8689,6 +8978,134 @@ var init_three_core = __esm(() => {
       return data;
     }
   };
+  _vector$7 = /* @__PURE__ */ new Vector3;
+  SpriteMaterial = class SpriteMaterial extends Material {
+    constructor(parameters) {
+      super();
+      this.isSpriteMaterial = true;
+      this.type = "SpriteMaterial";
+      this.color = new Color(16777215);
+      this.map = null;
+      this.alphaMap = null;
+      this.rotation = 0;
+      this.sizeAttenuation = true;
+      this.transparent = true;
+      this.fog = true;
+      this.setValues(parameters);
+    }
+    copy(source) {
+      super.copy(source);
+      this.color.copy(source.color);
+      this.map = source.map;
+      this.alphaMap = source.alphaMap;
+      this.rotation = source.rotation;
+      this.sizeAttenuation = source.sizeAttenuation;
+      this.fog = source.fog;
+      return this;
+    }
+  };
+  _intersectPoint = /* @__PURE__ */ new Vector3;
+  _worldScale = /* @__PURE__ */ new Vector3;
+  _mvPosition = /* @__PURE__ */ new Vector3;
+  _alignedPosition = /* @__PURE__ */ new Vector2;
+  _rotatedPosition = /* @__PURE__ */ new Vector2;
+  _viewWorldMatrix = /* @__PURE__ */ new Matrix4;
+  _vA = /* @__PURE__ */ new Vector3;
+  _vB = /* @__PURE__ */ new Vector3;
+  _vC = /* @__PURE__ */ new Vector3;
+  _uvA = /* @__PURE__ */ new Vector2;
+  _uvB = /* @__PURE__ */ new Vector2;
+  _uvC = /* @__PURE__ */ new Vector2;
+  Sprite = class Sprite extends Object3D {
+    constructor(material = new SpriteMaterial) {
+      super();
+      this.isSprite = true;
+      this.type = "Sprite";
+      if (_geometry === undefined) {
+        _geometry = new BufferGeometry;
+        const float32Array = new Float32Array([
+          -0.5,
+          -0.5,
+          0,
+          0,
+          0,
+          0.5,
+          -0.5,
+          0,
+          1,
+          0,
+          0.5,
+          0.5,
+          0,
+          1,
+          1,
+          -0.5,
+          0.5,
+          0,
+          0,
+          1
+        ]);
+        const interleavedBuffer = new InterleavedBuffer(float32Array, 5);
+        _geometry.setIndex([0, 1, 2, 0, 2, 3]);
+        _geometry.setAttribute("position", new InterleavedBufferAttribute(interleavedBuffer, 3, 0, false));
+        _geometry.setAttribute("uv", new InterleavedBufferAttribute(interleavedBuffer, 2, 3, false));
+      }
+      this.geometry = _geometry;
+      this.material = material;
+      this.center = new Vector2(0.5, 0.5);
+    }
+    raycast(raycaster, intersects) {
+      if (raycaster.camera === null) {
+        console.error('THREE.Sprite: "Raycaster.camera" needs to be set in order to raycast against sprites.');
+      }
+      _worldScale.setFromMatrixScale(this.matrixWorld);
+      _viewWorldMatrix.copy(raycaster.camera.matrixWorld);
+      this.modelViewMatrix.multiplyMatrices(raycaster.camera.matrixWorldInverse, this.matrixWorld);
+      _mvPosition.setFromMatrixPosition(this.modelViewMatrix);
+      if (raycaster.camera.isPerspectiveCamera && this.material.sizeAttenuation === false) {
+        _worldScale.multiplyScalar(-_mvPosition.z);
+      }
+      const rotation = this.material.rotation;
+      let sin, cos;
+      if (rotation !== 0) {
+        cos = Math.cos(rotation);
+        sin = Math.sin(rotation);
+      }
+      const center = this.center;
+      transformVertex(_vA.set(-0.5, -0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+      transformVertex(_vB.set(0.5, -0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+      transformVertex(_vC.set(0.5, 0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+      _uvA.set(0, 0);
+      _uvB.set(1, 0);
+      _uvC.set(1, 1);
+      let intersect = raycaster.ray.intersectTriangle(_vA, _vB, _vC, false, _intersectPoint);
+      if (intersect === null) {
+        transformVertex(_vB.set(-0.5, 0.5, 0), _mvPosition, center, _worldScale, sin, cos);
+        _uvB.set(0, 1);
+        intersect = raycaster.ray.intersectTriangle(_vA, _vC, _vB, false, _intersectPoint);
+        if (intersect === null) {
+          return;
+        }
+      }
+      const distance = raycaster.ray.origin.distanceTo(_intersectPoint);
+      if (distance < raycaster.near || distance > raycaster.far)
+        return;
+      intersects.push({
+        distance,
+        point: _intersectPoint.clone(),
+        uv: Triangle.getInterpolation(_intersectPoint, _vA, _vB, _vC, _uvA, _uvB, _uvC, new Vector2),
+        face: null,
+        object: this
+      });
+    }
+    copy(source, recursive) {
+      super.copy(source, recursive);
+      if (source.center !== undefined)
+        this.center.copy(source.center);
+      this.material = source.material;
+      return this;
+    }
+  };
   DataTexture = class DataTexture extends Texture {
     constructor(data = null, width = 1, height = 1, format, type, mapping, wrapS, wrapT, magFilter = NearestFilter, minFilter = NearestFilter, anisotropy, colorSpace) {
       super(null, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy, colorSpace);
@@ -8865,6 +9282,13 @@ var init_three_core = __esm(() => {
   _normalMatrix = /* @__PURE__ */ new Matrix3;
   _sphere$3 = /* @__PURE__ */ new Sphere;
   _vector$6 = /* @__PURE__ */ new Vector3;
+  CanvasTexture = class CanvasTexture extends Texture {
+    constructor(canvas, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy) {
+      super(canvas, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy);
+      this.isCanvasTexture = true;
+      this.needsUpdate = true;
+    }
+  };
   DepthTexture = class DepthTexture extends Texture {
     constructor(width, height, type = UnsignedIntType, mapping, wrapS, wrapT, magFilter = NearestFilter, minFilter = NearestFilter, anisotropy, format = DepthFormat) {
       if (format !== DepthFormat && format !== DepthStencilFormat) {
@@ -23774,6 +24198,33 @@ var init_terrain = __esm(() => {
 });
 
 // src/world/special-objects.ts
+function createWoodLabel(wood, maxWood) {
+  const canvas2 = document.createElement("canvas");
+  const context = canvas2.getContext("2d");
+  canvas2.width = 128;
+  canvas2.height = 64;
+  if (context) {
+    context.fillStyle = "rgba(0, 0, 0, 0.5)";
+    context.fillRect(0, 0, canvas2.width, canvas2.height);
+    context.strokeStyle = "white";
+    context.lineWidth = 2;
+    context.strokeRect(2, 2, canvas2.width - 4, canvas2.height - 4);
+    context.font = "bold 30px Arial";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillStyle = "white";
+    context.fillText(`Wood: ${wood}/${maxWood}`, canvas2.width / 2, canvas2.height / 2);
+  }
+  const texture = new CanvasTexture(canvas2);
+  texture.needsUpdate = true;
+  const spriteMaterial = new SpriteMaterial({
+    map: texture,
+    transparent: true
+  });
+  const sprite = new Sprite(spriteMaterial);
+  sprite.scale.set(1.5, 0.75, 1);
+  return sprite;
+}
 function createTreeFromData(x, y, z) {
   const tree = new Group;
   const trunkMaterial = new MeshLambertMaterial({ color: 9127187 });
@@ -23784,6 +24235,66 @@ function createTreeFromData(x, y, z) {
   const leaves = new Mesh(new SphereGeometry(2, 8, 8), leavesMaterial);
   leaves.position.set(x, y + 5, z);
   tree.add(leaves);
+  tree.woodRemaining = 10;
+  tree.maxWood = 10;
+  tree.isBeingHarvested = false;
+  tree.harvestedBy = null;
+  tree.growthStage = 1;
+  tree.lastHarvestTime = 0;
+  const woodLabel = createWoodLabel(tree.woodRemaining, tree.maxWood);
+  woodLabel.position.set(x, y + 7.5, z);
+  tree.add(woodLabel);
+  tree.woodLabel = woodLabel;
+  tree.canBeHarvested = function() {
+    return this.woodRemaining > 0 && !this.isBeingHarvested;
+  };
+  tree.harvestWood = function(amount) {
+    const harvestedAmount = Math.min(amount, this.woodRemaining);
+    this.woodRemaining -= harvestedAmount;
+    this.lastHarvestTime = Date.now();
+    this.updateAppearance();
+    this.updateWoodLabel();
+    return harvestedAmount;
+  };
+  tree.getWoodPercentage = function() {
+    return this.woodRemaining / this.maxWood;
+  };
+  tree.updateAppearance = function() {
+    const woodPercentage = this.getWoodPercentage();
+    if (woodPercentage <= 0) {
+      this.children[1].visible = false;
+      const trunk2 = this.children[0];
+      trunk2.scale.y = 0.25;
+      trunk2.position.y = y + 0.5;
+      if (this.woodLabel) {
+        this.woodLabel.position.y = y + 1.5;
+      }
+    } else if (woodPercentage < 0.5) {
+      const leaves2 = this.children[1];
+      leaves2.scale.set(woodPercentage * 2, woodPercentage * 2, woodPercentage * 2);
+      if (this.woodLabel) {
+        this.woodLabel.position.y = y + 5 + woodPercentage * 2.5;
+      }
+    }
+  };
+  tree.updateWoodLabel = function() {
+    if (this.woodLabel) {
+      this.remove(this.woodLabel);
+      const newLabel = createWoodLabel(this.woodRemaining, this.maxWood);
+      const woodPercentage = this.getWoodPercentage();
+      if (woodPercentage <= 0) {
+        newLabel.position.set(x, y + 1.5, z);
+      } else {
+        newLabel.position.set(x, y + 5 + woodPercentage * 2.5, z);
+      }
+      this.add(newLabel);
+      this.woodLabel = newLabel;
+    }
+  };
+  tree.userData = {
+    type: "harvestableTree",
+    position: new Vector3(x, y, z)
+  };
   return tree;
 }
 function createHouseFromData(x, y, z) {
@@ -23832,8 +24343,21 @@ var init_special_objects = __esm(() => {
 });
 
 // src/world/villager.ts
+function createAxe() {
+  const axe = new Group;
+  const handleMaterial = new MeshLambertMaterial({ color: 9127187 });
+  const handle = new Mesh(new CylinderGeometry(0.03, 0.03, 0.6, 8), handleMaterial);
+  handle.rotation.x = Math.PI / 2;
+  axe.add(handle);
+  const bladeMaterial = new MeshLambertMaterial({ color: 12632256 });
+  const blade = new Mesh(new ConeGeometry(0.08, 0.2, 4), bladeMaterial);
+  blade.rotation.z = Math.PI / 2;
+  blade.position.set(0.3, 0, 0);
+  axe.add(blade);
+  return axe;
+}
 function createVillager(x, y, z, townHallId) {
-  const villagerType = villagerTypes[Math.floor(Math.random() * villagerTypes.length)];
+  const villagerType = villagerTypes[Math.floor(Math.random() * (villagerTypes.length - 1))];
   const villager = new Group;
   const skinMat = new MeshStandardMaterial({ color: 16767916 });
   const hairMat = new MeshStandardMaterial({ color: villagerType.hairColor });
@@ -23922,9 +24446,294 @@ function createVillager(x, y, z, townHallId) {
   };
   return villager;
 }
-var villagerTypes;
+function createWoodcutterVillager(x, y, z, townHallId) {
+  const villagerType = villagerTypes[4];
+  const woodcutter = new Group;
+  const skinMat = new MeshStandardMaterial({ color: 16767916 });
+  const hairMat = new MeshStandardMaterial({ color: villagerType.hairColor });
+  const eyeMat = new MeshStandardMaterial({ color: 0 });
+  const mouthMat = new MeshStandardMaterial({ color: 8077056 });
+  const clothesMat = new MeshStandardMaterial({ color: villagerType.clothesColor });
+  const pantsMat = new MeshStandardMaterial({ color: 3355443 });
+  const hatMat = new MeshStandardMaterial({ color: villagerType.hatColor });
+  const head = new Mesh(new BoxGeometry(0.8, 0.8, 0.8), skinMat);
+  head.position.y = 1.9;
+  woodcutter.add(head);
+  const eyeGeo = new BoxGeometry(0.08, 0.08, 0.08);
+  const leftEye = new Mesh(eyeGeo, eyeMat);
+  const rightEye = new Mesh(eyeGeo, eyeMat);
+  leftEye.position.set(-0.18, 2, 0.41);
+  rightEye.position.set(0.18, 2, 0.41);
+  woodcutter.add(leftEye, rightEye);
+  const mouth = new Mesh(new BoxGeometry(0.25, 0.04, 0.04), mouthMat);
+  mouth.position.set(0, 1.75, 0.41);
+  woodcutter.add(mouth);
+  const hair = new Mesh(new BoxGeometry(0.85, 0.3, 0.85), hairMat);
+  hair.position.y = 2.25;
+  woodcutter.add(hair);
+  const cap = new Mesh(new CylinderGeometry(0.42, 0.4, 0.2, 8), hatMat);
+  cap.position.y = 2.4;
+  woodcutter.add(cap);
+  const torso = new Mesh(new BoxGeometry(0.9, 1, 0.4), clothesMat);
+  torso.position.y = 1.1;
+  woodcutter.add(torso);
+  const armGeo = new BoxGeometry(0.25, 0.9, 0.25);
+  armGeo.translate(0, -0.45, 0);
+  const leftArm = new Mesh(armGeo, skinMat);
+  const rightArm = new Mesh(armGeo, skinMat);
+  leftArm.position.set(-0.55, 1.55, 0);
+  rightArm.position.set(0.55, 1.55, 0);
+  woodcutter.add(leftArm, rightArm);
+  woodcutter.leftArm = leftArm;
+  woodcutter.rightArm = rightArm;
+  const legGeo = new BoxGeometry(0.3, 1, 0.3);
+  legGeo.translate(0, -0.5, 0);
+  const leftLeg = new Mesh(legGeo, pantsMat);
+  const rightLeg = new Mesh(legGeo, pantsMat);
+  leftLeg.position.set(-0.2, 0.6, 0);
+  rightLeg.position.set(0.2, 0.6, 0);
+  woodcutter.add(leftLeg, rightLeg);
+  woodcutter.leftLeg = leftLeg;
+  woodcutter.rightLeg = rightLeg;
+  const axe = createAxe();
+  axe.position.set(0.65, 1, 0.2);
+  axe.rotation.z = Math.PI / 2;
+  rightArm.add(axe);
+  woodcutter.axe = axe;
+  woodcutter.position.set(x, y, z);
+  woodcutter.townHallId = townHallId;
+  woodcutter.walkDirection = new Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+  woodcutter.walkSpeed = 0.5 + Math.random() * 0.5;
+  woodcutter.walkRadius = 40 + Math.random() * 10;
+  woodcutter.lastDirectionChange = 0;
+  woodcutter.homePosition = new Vector3(x, y, z);
+  woodcutter.woodCarried = 0;
+  woodcutter.maxWoodCapacity = 5;
+  woodcutter.targetTree = null;
+  woodcutter.harvestSpeed = 1;
+  woodcutter.harvestTimer = 0;
+  woodcutter.state = "idle" /* IDLE */;
+  woodcutter.stateTime = 0;
+  woodcutter.findTree = function() {
+    let closestTree = null;
+    let closestDistance = this.walkRadius;
+    if (DEBUG_WOODCUTTER) {
+      console.log(`Woodcutter at [${this.position.x.toFixed(2)}, ${this.position.y.toFixed(2)}, ${this.position.z.toFixed(2)}] looking for trees with radius ${this.walkRadius}`);
+    }
+    let treeCounter = 0;
+    let validTreeCounter = 0;
+    scene.traverse((object) => {
+      if (object.userData?.type === "harvestableTree") {
+        treeCounter++;
+        if (object.canBeHarvested) {
+          if (object.canBeHarvested()) {
+            validTreeCounter++;
+            const tree = object;
+            const distance = this.position.distanceTo(new Vector3(object.position.x, this.position.y, object.position.z));
+            if (DEBUG_WOODCUTTER && debugCounter % DEBUG_SAMPLE_RATE === 0) {
+              console.log(`  Found harvestable tree at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}], distance: ${distance.toFixed(2)}, wood: ${tree.woodRemaining}/${tree.maxWood}`);
+            }
+            if (distance < closestDistance) {
+              closestTree = tree;
+              closestDistance = distance;
+            }
+          } else if (DEBUG_WOODCUTTER) {
+            const tree = object;
+            console.log(`  Tree at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}] is not harvestable: woodRemaining=${tree.woodRemaining}, isBeingHarvested=${tree.isBeingHarvested}`);
+          }
+        } else if (DEBUG_WOODCUTTER) {
+          console.log(`  Object at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}] has type 'harvestableTree' but no canBeHarvested method`);
+        }
+      }
+    });
+    if (DEBUG_WOODCUTTER) {
+      console.log(`Found ${treeCounter} total trees, ${validTreeCounter} valid harvestable trees`);
+      if (closestTree) {
+        console.log(`Selected closest tree at distance ${closestDistance.toFixed(2)}`);
+      } else {
+        console.log(`No suitable tree found within range ${this.walkRadius}`);
+      }
+    }
+    debugCounter++;
+    return closestTree;
+  };
+  woodcutter.moveToTree = function(deltaTime) {
+    if (!this.targetTree)
+      return false;
+    const treePos = new Vector3(this.targetTree.position.x, this.position.y, this.targetTree.position.z);
+    const directionToTree = treePos.clone().sub(this.position).normalize();
+    this.rotation.y = Math.atan2(directionToTree.x, directionToTree.z);
+    const distance = this.position.distanceTo(treePos);
+    if (distance > 1.5) {
+      const movement = directionToTree.multiplyScalar(this.walkSpeed * deltaTime);
+      this.position.add(movement);
+      const now = performance.now();
+      const walkCycle = Math.sin(now * 0.005) * 0.2;
+      this.leftLeg.rotation.x = walkCycle;
+      this.rightLeg.rotation.x = -walkCycle;
+      this.leftArm.rotation.x = -walkCycle;
+      this.rightArm.rotation.x = walkCycle;
+      return false;
+    } else {
+      return true;
+    }
+  };
+  woodcutter.harvestTree = function(deltaTime) {
+    if (!this.targetTree || this.woodCarried >= this.maxWoodCapacity) {
+      if (DEBUG_WOODCUTTER) {
+        if (!this.targetTree) {
+          console.log("Cannot harvest: target tree is null");
+        } else if (this.woodCarried >= this.maxWoodCapacity) {
+          console.log(`Cannot harvest: inventory full (${this.woodCarried}/${this.maxWoodCapacity})`);
+        }
+      }
+      return true;
+    }
+    const now = performance.now();
+    this.rightArm.rotation.x = Math.sin(now * 0.01) * 0.8;
+    this.leftLeg.rotation.x = 0;
+    this.rightLeg.rotation.x = 0;
+    this.leftArm.rotation.x = -0.2;
+    this.axe.rotation.z = Math.PI / 2 - Math.abs(Math.sin(now * 0.01)) * 0.5;
+    this.harvestTimer += deltaTime * this.harvestSpeed;
+    if (this.harvestTimer >= 1) {
+      this.targetTree.isBeingHarvested = true;
+      this.targetTree.harvestedBy = `woodcutter-${this.id || Math.random().toString(36).substr(2, 9)}`;
+      const woodBefore = this.targetTree.woodRemaining;
+      const harvested = this.targetTree.harvestWood(1);
+      const woodAfter = this.targetTree.woodRemaining;
+      if (DEBUG_WOODCUTTER) {
+        console.log(`Harvested ${harvested} wood from tree at [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}], wood remaining: ${woodAfter}/${this.targetTree.maxWood}`);
+      }
+      this.woodCarried += harvested;
+      this.harvestTimer = 0;
+      if (DEBUG_WOODCUTTER) {
+        console.log(`Woodcutter now carrying ${this.woodCarried}/${this.maxWoodCapacity} wood`);
+      }
+      trackHarvestedTree(this.targetTree);
+      if (!this.targetTree.canBeHarvested() || this.woodCarried >= this.maxWoodCapacity) {
+        this.targetTree.isBeingHarvested = false;
+        this.targetTree.harvestedBy = null;
+        if (DEBUG_WOODCUTTER) {
+          if (!this.targetTree.canBeHarvested()) {
+            console.log("Tree fully harvested, returning to town hall");
+          } else {
+            console.log("Inventory full, returning to town hall");
+          }
+        }
+        return true;
+      }
+    }
+    return false;
+  };
+  woodcutter.returnHome = function(deltaTime) {
+    const directionToHome = this.homePosition.clone().sub(this.position).normalize();
+    this.rotation.y = Math.atan2(directionToHome.x, directionToHome.z);
+    const distance = this.position.distanceTo(this.homePosition);
+    if (distance > 2) {
+      const movement = directionToHome.multiplyScalar(this.walkSpeed * deltaTime);
+      this.position.add(movement);
+      const now = performance.now();
+      const walkCycle = Math.sin(now * 0.005) * 0.2;
+      this.leftLeg.rotation.x = walkCycle;
+      this.rightLeg.rotation.x = -walkCycle;
+      this.leftArm.rotation.x = -walkCycle;
+      this.rightArm.rotation.x = walkCycle;
+      this.axe.rotation.z = Math.PI / 2;
+      return false;
+    } else {
+      return true;
+    }
+  };
+  woodcutter.depositWood = function(deltaTime) {
+    this.leftArm.rotation.x = 0.5;
+    this.rightArm.rotation.x = 0.5;
+    this.leftLeg.rotation.x = 0;
+    this.rightLeg.rotation.x = 0;
+    this.stateTime += deltaTime;
+    if (DEBUG_WOODCUTTER) {
+      console.log(`Depositing wood: ${this.woodCarried} units, deposit progress: ${this.stateTime.toFixed(2)}/1.0`);
+    }
+    if (this.stateTime >= 1) {
+      if (DEBUG_WOODCUTTER) {
+        console.log(`Successfully deposited ${this.woodCarried} wood at town hall ${this.townHallId}`);
+      }
+      this.woodCarried = 0;
+      this.stateTime = 0;
+      this.leftArm.rotation.x = 0;
+      this.rightArm.rotation.x = 0;
+      return true;
+    }
+    return false;
+  };
+  woodcutter.update = (deltaTime) => {
+    switch (woodcutter.state) {
+      case "idle" /* IDLE */:
+        woodcutter.targetTree = woodcutter.findTree();
+        if (woodcutter.targetTree) {
+          woodcutter.state = "walking" /* WALKING */;
+        } else {
+          const now = performance.now();
+          if (now - woodcutter.lastDirectionChange > 3000) {
+            woodcutter.walkDirection.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+            woodcutter.lastDirectionChange = now;
+            woodcutter.rotation.y = Math.atan2(woodcutter.walkDirection.x, woodcutter.walkDirection.z);
+          }
+          const nextPos = woodcutter.position.clone().add(woodcutter.walkDirection.clone().multiplyScalar(woodcutter.walkSpeed * deltaTime));
+          const distanceFromHome = nextPos.distanceTo(woodcutter.homePosition);
+          if (distanceFromHome <= woodcutter.walkRadius) {
+            woodcutter.position.copy(nextPos);
+          } else {
+            woodcutter.walkDirection.negate();
+            woodcutter.lastDirectionChange = now;
+            woodcutter.rotation.y = Math.atan2(woodcutter.walkDirection.x, woodcutter.walkDirection.z);
+          }
+          const walkCycle = Math.sin(now * 0.005) * 0.2;
+          woodcutter.leftLeg.rotation.x = walkCycle;
+          woodcutter.rightLeg.rotation.x = -walkCycle;
+          woodcutter.leftArm.rotation.x = -walkCycle;
+          woodcutter.rightArm.rotation.x = walkCycle;
+        }
+        break;
+      case "walking" /* WALKING */:
+        if (woodcutter.targetTree) {
+          const arrived = woodcutter.moveToTree(deltaTime);
+          if (arrived) {
+            woodcutter.state = "harvesting" /* HARVESTING */;
+            woodcutter.harvestTimer = 0;
+          }
+        } else {
+          woodcutter.state = "idle" /* IDLE */;
+        }
+        break;
+      case "harvesting" /* HARVESTING */:
+        const finishedHarvesting = woodcutter.harvestTree(deltaTime);
+        if (finishedHarvesting) {
+          woodcutter.state = "returning" /* RETURNING */;
+        }
+        break;
+      case "returning" /* RETURNING */:
+        const arrivedHome = woodcutter.returnHome(deltaTime);
+        if (arrivedHome) {
+          woodcutter.state = "depositing" /* DEPOSITING */;
+          woodcutter.stateTime = 0;
+        }
+        break;
+      case "depositing" /* DEPOSITING */:
+        const finishedDepositing = woodcutter.depositWood(deltaTime);
+        if (finishedDepositing) {
+          woodcutter.state = "idle" /* IDLE */;
+        }
+        break;
+    }
+  };
+  return woodcutter;
+}
+var DEBUG_WOODCUTTER = true, DEBUG_SAMPLE_RATE = 100, debugCounter = 0, villagerTypes;
 var init_villager = __esm(() => {
   init_three_module();
+  init_renderer();
+  init_npc_manager();
   villagerTypes = [
     {
       type: "farmer",
@@ -23953,6 +24762,13 @@ var init_villager = __esm(() => {
       hairColor: 5526612,
       hasHat: false,
       hatColor: 0
+    },
+    {
+      type: "woodcutter",
+      clothesColor: 2263842,
+      hairColor: 9127187,
+      hasHat: true,
+      hatColor: 9127187
     }
   ];
 });
@@ -23961,12 +24777,18 @@ var init_villager = __esm(() => {
 var exports_npc_manager = {};
 __export(exports_npc_manager, {
   updateVillagers: () => updateVillagers,
+  trackHarvestedTree: () => trackHarvestedTree,
   spawnVillagersAtTownHall: () => spawnVillagersAtTownHall,
+  getWoodcutters: () => getWoodcutters,
   getVillagers: () => getVillagers,
   findClosestVillager: () => findClosestVillager,
   clearAllVillagers: () => clearAllVillagers
 });
 function spawnVillagersAtTownHall(position, townHallId) {
+  townHallResources.push({
+    townHallId,
+    wood: 0
+  });
   for (let i = 0;i < VILLAGERS_PER_TOWN_HALL; i++) {
     const offsetX = (Math.random() - 0.5) * 6;
     const offsetZ = (Math.random() - 0.5) * 6;
@@ -23974,19 +24796,63 @@ function spawnVillagersAtTownHall(position, townHallId) {
     scene.add(villager);
     villagers.push(villager);
   }
+  for (let i = 0;i < WOODCUTTERS_PER_TOWN_HALL; i++) {
+    const offsetX = (Math.random() - 0.5) * 4;
+    const offsetZ = (Math.random() - 0.5) * 4 - 2;
+    const woodcutter = createWoodcutterVillager(position.x + offsetX, position.y, position.z + offsetZ, townHallId);
+    scene.add(woodcutter);
+    woodcutters.push(woodcutter);
+  }
 }
 function updateVillagers(deltaTime) {
   for (const villager of villagers) {
     villager.update(deltaTime);
   }
+  for (const woodcutter of woodcutters) {
+    woodcutter.update(deltaTime);
+    if (woodcutter.state === "depositing" && woodcutter.woodCarried > 0) {
+      const resources = townHallResources.find((r) => r.townHallId === woodcutter.townHallId);
+      if (resources) {
+        resources.wood += woodcutter.woodCarried;
+        console.log(`Town Hall ${woodcutter.townHallId} now has ${resources.wood} wood.`);
+      }
+    }
+  }
+  const now = Date.now();
+  for (let i = 0;i < harvestedTrees.length; i++) {
+    const tree = harvestedTrees[i];
+    if (tree.woodRemaining <= 0 && now - tree.lastHarvestTime > 60000) {
+      tree.woodRemaining = tree.maxWood;
+      tree.updateAppearance();
+      harvestedTrees.splice(i, 1);
+      i--;
+      console.log("A tree has regrown!");
+    } else if (tree.woodRemaining > 0 && tree.woodRemaining < tree.maxWood && now - tree.lastHarvestTime > 30000) {
+      tree.woodRemaining = Math.min(tree.maxWood, tree.woodRemaining + 1);
+      tree.updateAppearance();
+      if (tree.woodRemaining >= tree.maxWood) {
+        harvestedTrees.splice(i, 1);
+        i--;
+      }
+    }
+  }
+}
+function trackHarvestedTree(tree) {
+  if (!harvestedTrees.includes(tree)) {
+    harvestedTrees.push(tree);
+  }
 }
 function getVillagers() {
-  return villagers;
+  return [...villagers, ...woodcutters];
+}
+function getWoodcutters() {
+  return woodcutters;
 }
 function findClosestVillager(position, maxDistance = 5) {
   let closestVillager = null;
   let closestDistance = maxDistance;
-  for (const villager of villagers) {
+  const allVillagers = [...villagers, ...woodcutters];
+  for (const villager of allVillagers) {
     const distance = position.distanceTo(villager.position);
     if (distance < closestDistance) {
       closestDistance = distance;
@@ -24000,12 +24866,21 @@ function clearAllVillagers() {
     scene.remove(villager);
   }
   villagers.length = 0;
+  for (const woodcutter of woodcutters) {
+    scene.remove(woodcutter);
+  }
+  woodcutters.length = 0;
+  townHallResources.length = 0;
+  harvestedTrees.length = 0;
 }
-var villagers, VILLAGERS_PER_TOWN_HALL = 3;
+var villagers, woodcutters, VILLAGERS_PER_TOWN_HALL = 3, WOODCUTTERS_PER_TOWN_HALL = 1, harvestedTrees, townHallResources;
 var init_npc_manager = __esm(() => {
   init_renderer();
   init_villager();
   villagers = [];
+  woodcutters = [];
+  harvestedTrees = [];
+  townHallResources = [];
 });
 
 // src/world/chunkmanager.ts
@@ -24268,7 +25143,6 @@ function processChunkQueue(limit = 4) {
     const task = chunkQueue.shift();
     task?.();
   }
-  log(`\uD83D\uDFE9 Visible Chunks (${visibleChunkKeys.size}): ${[...visibleChunkKeys].join(", ")}`);
 }
 function manageChunkCache(playerChunkX, playerChunkZ) {
   if (chunks.size <= MAX_CACHED_CHUNKS)
@@ -24387,8 +25261,8 @@ function getActualTerrainHeight(x, z) {
   const localZ = Math.floor(z) - cz * CHUNK_SIZE2;
   if (chunks.has(key)) {
     const chunk = chunks.get(key);
-    let maxHeight = 0;
     const raycaster = new Raycaster(new Vector3(x, MAX_HEIGHT2 + 10, z), new Vector3(0, -1, 0), 0, MAX_HEIGHT2 + 20);
+    raycaster.camera = camera;
     const intersects = raycaster.intersectObject(chunk, true);
     if (intersects.length > 0) {
       return intersects[0]?.point.y ?? getTerrainHeightAt(x, z);
@@ -24467,6 +25341,7 @@ init_player();
 init_three_module();
 init_player();
 init_renderer();
+init_terrain();
 init_chunkmanager();
 var canShoot = true;
 var SHOOT_COOLDOWN = 0.3;
@@ -24651,13 +25526,28 @@ function updateCamera() {
   }
   _velocityY += GRAVITY * 0.1;
   player.position.y += _velocityY * 0.1;
-  const groundY = getActualTerrainHeight(player.position.x, player.position.z) + playerHeight;
-  if (player.position.y <= groundY) {
-    player.position.y = groundY;
-    _velocityY = 0;
-    _onGround = true;
-  } else {
-    _onGround = false;
+  try {
+    const groundY = getActualTerrainHeight(player.position.x, player.position.z);
+    const playerGroundLevel = groundY + playerHeight;
+    if (isFinite(playerGroundLevel) && Math.abs(playerGroundLevel) < 100) {
+      if (player.position.y <= playerGroundLevel) {
+        player.position.y = playerGroundLevel;
+        _velocityY = 0;
+        _onGround = true;
+      } else {
+        _onGround = false;
+      }
+    } else {
+      console.warn("Invalid ground height detected:", playerGroundLevel);
+    }
+  } catch (error) {
+    console.error("Error calculating ground height:", error);
+    const fallbackGroundHeight = getTerrainHeightAt(player.position.x, player.position.z);
+    if (player.position.y <= fallbackGroundHeight + playerHeight) {
+      player.position.y = fallbackGroundHeight + playerHeight;
+      _velocityY = 0;
+      _onGround = true;
+    }
   }
   if (keyState[" "] && _onGround) {
     console.log("Jump!");
