@@ -13,6 +13,45 @@
     canvas {
       display: block;
     }
+    #mini-map {
+      position: absolute;
+      top: 40px;
+      left: 10px;
+      width: 150px;
+      height: 150px;
+      background-color: rgba(0, 0, 0, 0.5);
+      border: 2px solid white;
+      border-radius: 5px;
+      z-index: 100;
+    }
+    .town-hall-marker {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background-color: #0076c0;
+      border: 1px solid white;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .player-marker {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background-color: #ff3300;
+      border: 1px solid white;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .mini-map-label {
+      position: absolute;
+      top: -20px;
+      left: 0;
+      color: white;
+      font-size: 12px;
+      font-family: Arial, sans-serif;
+      width: 100%;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -29,7 +68,13 @@
         FPS: 0
     </div>
     
+    <!-- Mini-map in top left corner -->
+    <div id="mini-map">
+      <div class="mini-map-label">Mini Map</div>
+    </div>
+    
     <script type="module" src="./index.js"></script>
+    <script type="module" src="./town-hall-nav.js"></script>
   </body>
   
 </html>

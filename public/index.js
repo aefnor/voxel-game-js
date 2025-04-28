@@ -23796,6 +23796,37 @@ function createHouseFromData(x, y, z) {
   house.add(roof);
   return house;
 }
+function createTownHallFromData(x, y, z) {
+  const townHall = new Group;
+  const mainBuildingMaterial = new MeshLambertMaterial({ color: 10255174 });
+  const mainBuilding = new Mesh(new BoxGeometry(10, 6, 10), mainBuildingMaterial);
+  mainBuilding.position.set(x, y + 3, z);
+  townHall.add(mainBuilding);
+  const roofMaterial = new MeshLambertMaterial({ color: 30400 });
+  const roof = new Mesh(new ConeGeometry(8, 4, 4), roofMaterial);
+  roof.position.set(x, y + 8, z);
+  townHall.add(roof);
+  const towerMaterial = new MeshLambertMaterial({ color: 13948116 });
+  const tower = new Mesh(new BoxGeometry(2, 5, 2), towerMaterial);
+  tower.position.set(x, y + 12.5, z);
+  townHall.add(tower);
+  const towerRoof = new Mesh(new ConeGeometry(1.5, 2, 4), roofMaterial);
+  towerRoof.position.set(x, y + 16, z);
+  townHall.add(towerRoof);
+  const entranceMaterial = new MeshLambertMaterial({ color: 9127187 });
+  const entrance = new Mesh(new BoxGeometry(4, 3, 1), entranceMaterial);
+  entrance.position.set(x, y + 1.5, z - 5);
+  townHall.add(entrance);
+  const flagPoleMaterial = new MeshLambertMaterial({ color: 9145227 });
+  const flagPole = new Mesh(new CylinderGeometry(0.1, 0.1, 3, 8), flagPoleMaterial);
+  flagPole.position.set(x, y + 18, z);
+  townHall.add(flagPole);
+  const flagMaterial = new MeshLambertMaterial({ color: 16711680 });
+  const flag = new Mesh(new BoxGeometry(1, 0.8, 0.05), flagMaterial);
+  flag.position.set(x + 0.5, y + 17.5, z);
+  townHall.add(flag);
+  return townHall;
+}
 var init_special_objects = __esm(() => {
   init_three_module();
 });
@@ -23804,11 +23835,16 @@ var init_special_objects = __esm(() => {
 var exports_chunkmanager = {};
 __export(exports_chunkmanager, {
   updateChunks: () => updateChunks,
+  townHallPositions: () => townHallPositions,
   setRenderDistance: () => setRenderDistance,
   processChunkQueue: () => processChunkQueue,
   prerenderArea: () => prerenderArea,
+  initializeTownHalls: () => initializeTownHalls,
   initChunkWorker: () => initChunkWorker,
-  getActualTerrainHeight: () => getActualTerrainHeight
+  getActualTerrainHeight: () => getActualTerrainHeight,
+  WORLD_SIZE: () => WORLD_SIZE,
+  WORLD_MIN: () => WORLD_MIN,
+  WORLD_MAX: () => WORLD_MAX
 });
 function log(...args) {
   if (DEBUG)
@@ -23941,6 +23977,9 @@ function getChunkCoord(coord) {
   return Math.floor(coord / CHUNK_SIZE2);
 }
 async function ensureChunkNow(cx, cz) {
+  if (cx < WORLD_MIN || cx > WORLD_MAX || cz < WORLD_MIN || cz > WORLD_MAX) {
+    return;
+  }
   const key = chunkKey(cx, cz);
   let chunk;
   if (!chunks.has(key)) {
@@ -23971,6 +24010,9 @@ async function ensureChunkNow(cx, cz) {
   visibleChunkKeys.add(key);
 }
 function enqueueChunk(cx, cz) {
+  if (cx < WORLD_MIN || cx > WORLD_MAX || cz < WORLD_MIN || cz > WORLD_MAX) {
+    return;
+  }
   const key = chunkKey(cx, cz);
   if (!chunks.has(key)) {
     chunkQueue.push(async () => {
@@ -24095,6 +24137,14 @@ async function prerenderArea(centerPosition, radius = 5, maxPerFrame = 4) {
   const centerChunkZ = getChunkCoord(centerPosition.z);
   log(`\uD83D\uDD04 Starting prerender around (${centerChunkX}, ${centerChunkZ}) with radius ${radius}`);
   const chunkPositions = [];
+  townHallPositions.forEach((pos, index) => {
+    const thCx = Math.floor(pos.x / CHUNK_SIZE2);
+    const thCz = Math.floor(pos.z / CHUNK_SIZE2);
+    if (thCx >= WORLD_MIN && thCx <= WORLD_MAX && thCz >= WORLD_MIN && thCz <= WORLD_MAX) {
+      chunkPositions.push([thCx, thCz, -1000 + index]);
+      log(`\uD83C\uDFDB️ Adding Town Hall chunk at (${thCx}, ${thCz}) to preload queue`);
+    }
+  });
   for (let r = 0;r <= radius; r++) {
     if (r === 0) {
       chunkPositions.push([centerChunkX, centerChunkZ, 0]);
@@ -24105,6 +24155,9 @@ async function prerenderArea(centerPosition, radius = 5, maxPerFrame = 4) {
         if (Math.abs(dx) === r || Math.abs(dz) === r) {
           const cx = centerChunkX + dx;
           const cz = centerChunkZ + dz;
+          if (cx < WORLD_MIN || cx > WORLD_MAX || cz < WORLD_MIN || cz > WORLD_MAX) {
+            continue;
+          }
           const distSq = dx * dx + dz * dz;
           chunkPositions.push([cx, cz, distSq]);
         }
@@ -24166,15 +24219,46 @@ function getActualTerrainHeight(x, z) {
   }
   return getTerrainHeightAt(x, z);
 }
-var CHUNK_SIZE2 = 16, MAX_HEIGHT2 = 300, renderDistance = 3, lastChunkX = Infinity, lastChunkZ = Infinity, chunks, chunkQueue, visibleChunkKeys, chunkWorker = null, pendingChunkRequests, grassMaterial2, dirtMaterial2, sandMaterial2, rockMaterial2, snowMaterial2, waterMaterial2, geometry2, materials, DEBUG = true, MAX_CACHED_CHUNKS = 100, CHUNK_UNLOAD_DISTANCE, chunkLastAccessed, frustum, projScreenMatrix;
+function initializeTownHalls() {
+  if (townHalls.some((th) => th.placed)) {
+    log("\uD83C\uDFDB️ Town halls already initialized, skipping...");
+    return;
+  }
+  log("\uD83C\uDFDB️ Initializing static town halls...");
+  townHalls.forEach((townHall, index) => {
+    const pos = townHall.position;
+    const worldY = getTerrainHeightAt(pos.x, pos.z);
+    const townHallObject = createTownHallFromData(pos.x, worldY, pos.z);
+    scene.add(townHallObject);
+    townHall.group = townHallObject;
+    townHall.position.y = worldY;
+    townHall.placed = true;
+    log(`\uD83C\uDFDB️ Added static Town Hall ${index + 1} at ${pos.x}, ${worldY}, ${pos.z}`);
+  });
+}
+var CHUNK_SIZE2 = 16, MAX_HEIGHT2 = 300, renderDistance = 3, lastChunkX = Infinity, lastChunkZ = Infinity, WORLD_SIZE = 100, WORLD_MIN, WORLD_MAX, townHallPositions, townHalls, chunks, chunkQueue, visibleChunkKeys, townHallsPlaced, chunkWorker = null, pendingChunkRequests, grassMaterial2, dirtMaterial2, sandMaterial2, rockMaterial2, snowMaterial2, waterMaterial2, geometry2, materials, DEBUG = true, MAX_CACHED_CHUNKS = 100, CHUNK_UNLOAD_DISTANCE, chunkLastAccessed, frustum, projScreenMatrix;
 var init_chunkmanager = __esm(() => {
   init_three_module();
   init_renderer();
   init_terrain();
   init_special_objects();
+  WORLD_MIN = -WORLD_SIZE / 2;
+  WORLD_MAX = WORLD_SIZE / 2;
+  townHallPositions = [
+    { x: WORLD_MIN + WORLD_SIZE * 0.25, z: WORLD_MIN + WORLD_SIZE * 0.25 },
+    { x: WORLD_MIN + WORLD_SIZE * 0.75, z: WORLD_MIN + WORLD_SIZE * 0.25 },
+    { x: WORLD_MIN + WORLD_SIZE * 0.25, z: WORLD_MIN + WORLD_SIZE * 0.75 },
+    { x: WORLD_MIN + WORLD_SIZE * 0.75, z: WORLD_MIN + WORLD_SIZE * 0.75 }
+  ];
+  townHalls = townHallPositions.map((pos) => ({
+    group: new Group,
+    position: { ...pos, y: 0 },
+    placed: false
+  }));
   chunks = new Map;
   chunkQueue = [];
   visibleChunkKeys = new Set;
+  townHallsPlaced = new Set;
   pendingChunkRequests = new Map;
   grassMaterial2 = new MeshLambertMaterial({ color: 4034880 });
   dirtMaterial2 = new MeshLambertMaterial({ color: 9127187 });
@@ -24460,21 +24544,50 @@ function initInput() {
 }
 
 // src/ui/hud.ts
+init_chunkmanager();
 var slider;
 var coordsDiv;
 var fpsDiv;
+var miniMap;
 var lastFrameTime = performance.now();
 var frameCount = 0;
 var lastFpsUpdateTime = 0;
 var currentFps = 0;
+var townHallMarkers = [];
+var playerMarker = null;
 function initHUD() {
   slider = document.getElementById("chunk-distance");
   coordsDiv = document.getElementById("player-coords");
   fpsDiv = document.getElementById("fps");
+  miniMap = document.getElementById("mini-map");
   slider.addEventListener("input", () => {
     const { setRenderDistance: setRenderDistance2 } = (init_chunkmanager(), __toCommonJS(exports_chunkmanager));
     setRenderDistance2(parseInt(slider.value));
   });
+  initMiniMap();
+}
+function initMiniMap() {
+  playerMarker = document.createElement("div");
+  playerMarker.className = "player-marker";
+  miniMap.appendChild(playerMarker);
+  townHallPositions.forEach((pos, index) => {
+    const marker = document.createElement("div");
+    marker.className = "town-hall-marker";
+    marker.title = `Town Hall ${index + 1}`;
+    const [x, y] = worldToMiniMapCoords(pos.x, pos.z);
+    marker.style.left = `${x}px`;
+    marker.style.top = `${y}px`;
+    miniMap.appendChild(marker);
+    townHallMarkers.push(marker);
+  });
+}
+function worldToMiniMapCoords(worldX, worldZ) {
+  const miniMapSize = 150;
+  const normalizedX = (worldX - WORLD_MIN) / WORLD_SIZE;
+  const normalizedZ = (worldZ - WORLD_MIN) / WORLD_SIZE;
+  const pixelX = normalizedX * miniMapSize;
+  const pixelY = normalizedZ * miniMapSize;
+  return [pixelX, pixelY];
 }
 function updateHUD(position) {
   coordsDiv.textContent = `Coordinates: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`;
@@ -24486,6 +24599,14 @@ function updateHUD(position) {
     lastFpsUpdateTime = now;
     frameCount = 0;
   }
+  updateMiniMapPlayerPosition(position);
+}
+function updateMiniMapPlayerPosition(position) {
+  if (!playerMarker)
+    return;
+  const [x, y] = worldToMiniMapCoords(position.x, position.z);
+  playerMarker.style.left = `${x}px`;
+  playerMarker.style.top = `${y}px`;
 }
 
 // src/renderer/index.ts
@@ -24533,9 +24654,7 @@ function animate() {
     if (renderTime > 2)
       performanceEntries.push(`Render: ${renderTime.toFixed(2)}`);
     performanceEntries.push(`Total: ${(performance.now() - start).toFixed(2)}`);
-    if (performanceEntries.length > 1 || performance.now() - start > 2) {
-      console.log("Performance bottlenecks (>2ms):", performanceEntries.join(", "));
-    }
+    console.log(`\uD83D\uDCCA Performance: ${performanceEntries.join(" | ")}`);
   }
 }
 console.log("\uD83D\uDE80 Initializing voxel engine...");
@@ -24543,7 +24662,7 @@ async function initGame() {
   console.log("\uD83E\uDDE0 Initializing chunk worker...");
   await initChunkWorker();
   console.log("\uD83C\uDFDE️ Setting flat terrain mode...");
-  setFlatTerrainMode(false);
+  setFlatTerrainMode(true);
   initHUD();
   initInput();
   const loadingMessage = document.createElement("div");
@@ -24558,6 +24677,8 @@ async function initGame() {
   document.body.appendChild(loadingMessage);
   console.log("\uD83D\uDDFA️ Prerendering initial chunks...");
   await prerenderArea(player.position, 5, 5);
+  console.log("\uD83C\uDFDB️ Adding town halls to the world...");
+  initializeTownHalls();
   document.body.removeChild(loadingMessage);
   console.log("\uD83C\uDFAE Starting game loop");
   animate();

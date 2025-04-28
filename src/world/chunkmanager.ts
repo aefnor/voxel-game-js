@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { scene, camera } from '../renderer/renderer';
 import { generateChunk, getTerrainHeightAt } from './terrain';
-import { createTreeFromData, createHouseFromData } from './special-objects';
+import { createTreeFromData, createHouseFromData, createTownHallFromData } from './special-objects';
 
 const CHUNK_SIZE = 16;
 const MAX_HEIGHT = 300;
@@ -9,9 +9,37 @@ let renderDistance = 3;
 let lastChunkX = Infinity;
 let lastChunkZ = Infinity;
 
+// World boundaries - cap at 100x100 chunks
+export const WORLD_SIZE = 100; // World is WORLD_SIZE x WORLD_SIZE chunks
+export const WORLD_MIN = -WORLD_SIZE / 2;
+export const WORLD_MAX = WORLD_SIZE / 2;
+
+// Town hall positions - evenly spread out across the world
+export const townHallPositions = [
+  { x: WORLD_MIN + WORLD_SIZE * 0.25, z: WORLD_MIN + WORLD_SIZE * 0.25 }, // Southwest
+  { x: WORLD_MIN + WORLD_SIZE * 0.75, z: WORLD_MIN + WORLD_SIZE * 0.25 }, // Southeast
+  { x: WORLD_MIN + WORLD_SIZE * 0.25, z: WORLD_MIN + WORLD_SIZE * 0.75 }, // Northwest
+  { x: WORLD_MIN + WORLD_SIZE * 0.75, z: WORLD_MIN + WORLD_SIZE * 0.75 }  // Northeast
+];
+
+// Town hall management - separate from chunk system
+interface TownHall {
+  group: THREE.Group;
+  position: { x: number, y: number, z: number };
+  placed: boolean;
+}
+const townHalls: TownHall[] = townHallPositions.map((pos) => ({
+  group: new THREE.Group(),
+  position: { ...pos, y: 0 },
+  placed: false
+}));
+
 const chunks = new Map<string, THREE.Group>();
 const chunkQueue: Array<() => void> = [];
 const visibleChunkKeys = new Set<string>();
+
+// Track if town halls have been added - using a single source of truth for town hall placement
+const townHallsPlaced = new Set<string>();
 
 // Add worker communication
 let chunkWorker: Worker | null = null;
@@ -185,7 +213,8 @@ function createChunkFromWorkerData(cx: number, cz: number, chunkData: any): THRE
     chunkGroup.add(waterMesh);
   }
   
-  // Add special objects (trees, houses)
+  // Add special objects (trees, houses) - but not town halls!
+  // Town halls are now handled separately and not tied to chunks
   for (const obj of specialObjects) {
     if (obj.type === 'tree') {
       const tree = createTreeFromData(obj.x, obj.y, obj.z);
@@ -234,6 +263,12 @@ function getChunkCoord(coord: number): number {
 }
 
 async function ensureChunkNow(cx: number, cz: number): Promise<void> {
+  // Check if the chunk is within world boundaries
+  if (cx < WORLD_MIN || cx > WORLD_MAX || cz < WORLD_MIN || cz > WORLD_MAX) {
+    // Skip chunks outside the world boundary
+    return;
+  }
+
   const key = chunkKey(cx, cz);
   let chunk: THREE.Group;
   
@@ -251,6 +286,7 @@ async function ensureChunkNow(cx: number, cz: number): Promise<void> {
       scene.add(chunk);
       chunks.set(key, chunk);
       log(`🆕 Generated new chunk at ${key}`);
+      
     } catch (error) {
       console.error(`Failed to generate chunk ${key}:`, error);
       // Fallback to synchronous generation on main thread
@@ -273,6 +309,12 @@ async function ensureChunkNow(cx: number, cz: number): Promise<void> {
 }
 
 function enqueueChunk(cx: number, cz: number) {
+  // Check if the chunk is within world boundaries
+  if (cx < WORLD_MIN || cx > WORLD_MAX || cz < WORLD_MIN || cz > WORLD_MAX) {
+    // Skip chunks outside the world boundary
+    return;
+  }
+
   const key = chunkKey(cx, cz);
   if (!chunks.has(key)) {
     chunkQueue.push(async () => {
@@ -292,6 +334,7 @@ function enqueueChunk(cx: number, cz: number) {
         chunks.set(key, chunk);
         chunkLastAccessed.set(key, performance.now());
         visibleChunkKeys.add(key);
+        
       } catch (error) {
         console.error(`Failed to generate queued chunk ${key}:`, error);
       }
@@ -456,6 +499,18 @@ export async function prerenderArea(
   // Store all chunk positions to generate in order of distance from center
   const chunkPositions: Array<[number, number, number]> = [];
   
+  // First, add the town hall chunks to ensure they get preloaded
+  townHallPositions.forEach((pos, index) => {
+    const thCx = Math.floor(pos.x / CHUNK_SIZE);
+    const thCz = Math.floor(pos.z / CHUNK_SIZE);
+    // Check if within world boundaries
+    if (thCx >= WORLD_MIN && thCx <= WORLD_MAX && thCz >= WORLD_MIN && thCz <= WORLD_MAX) {
+      // Use negative distSq to prioritize town halls
+      chunkPositions.push([thCx, thCz, -1000 + index]);
+      log(`🏛️ Adding Town Hall chunk at (${thCx}, ${thCz}) to preload queue`);
+    }
+  });
+  
   // Add chunks in a spiral pattern (center-outward)
   for (let r = 0; r <= radius; r++) {
     if (r === 0) {
@@ -471,6 +526,12 @@ export async function prerenderArea(
         if (Math.abs(dx) === r || Math.abs(dz) === r) {
           const cx = centerChunkX + dx;
           const cz = centerChunkZ + dz;
+          
+          // Skip chunks outside of world boundaries
+          if (cx < WORLD_MIN || cx > WORLD_MAX || cz < WORLD_MIN || cz > WORLD_MAX) {
+            continue;
+          }
+          
           const distSq = dx * dx + dz * dz;
           chunkPositions.push([cx, cz, distSq]);
         }
@@ -478,7 +539,7 @@ export async function prerenderArea(
     }
   }
   
-  // Sort by distance from center (closest first)
+  // Sort by distance from center (closest first, but town halls get priority)
   chunkPositions.sort((a, b) => a[2] - b[2]);
   
   // Create a loading indicator or progress bar
@@ -538,7 +599,7 @@ export function getActualTerrainHeight(x: number, z: number): number {
   const cz = getChunkCoord(z);
   const key = chunkKey(cx, cz);
   
-  // Convert to local coordinates within the chunk
+  // Convert position to chunk coordinates
   const localX = Math.floor(x) - cx * CHUNK_SIZE;
   const localZ = Math.floor(z) - cz * CHUNK_SIZE;
   
@@ -567,4 +628,32 @@ export function getActualTerrainHeight(x: number, z: number): number {
   
   // Fall back to the terrain generation function if chunk isn't loaded
   return getTerrainHeightAt(x, z);
+}
+
+// Static town halls - these won't be affected by chunk loading/unloading
+export function initializeTownHalls(): void {
+  if (townHalls.some(th => th.placed)) {
+    log('🏛️ Town halls already initialized, skipping...');
+    return;
+  }
+
+  log('🏛️ Initializing static town halls...');
+  townHalls.forEach((townHall, index) => {
+    const pos = townHall.position;
+    // Calculate terrain height for town hall position
+    const worldY = getTerrainHeightAt(pos.x, pos.z);
+    
+    // Create the town hall structure
+    const townHallObject = createTownHallFromData(pos.x, worldY, pos.z);
+    
+    // Add to scene directly - not part of any chunk
+    scene.add(townHallObject);
+    
+    // Update town hall object
+    townHall.group = townHallObject;
+    townHall.position.y = worldY;
+    townHall.placed = true;
+    
+    log(`🏛️ Added static Town Hall ${index + 1} at ${pos.x}, ${worldY}, ${pos.z}`);
+  });
 }

@@ -3,7 +3,7 @@ import { player, playerCharacter } from '../player/player';
 import { updateCamera } from '../player/camera';
 import { initInput } from '../input/inputhandler';
 import { initHUD, updateHUD } from '../ui/hud';
-import { initChunkWorker, prerenderArea, processChunkQueue, updateChunks } from '../world/chunkmanager';
+import { initChunkWorker, prerenderArea, processChunkQueue, updateChunks, initializeTownHalls } from '../world/chunkmanager';
 import { setFlatTerrainMode } from '../world/terrain';
 
 let frameCount = 0;
@@ -65,11 +65,7 @@ function animate() {
     
     // Always show total time
     performanceEntries.push(`Total: ${(performance.now() - start).toFixed(2)}`);
-    
-    // Only log if there are slow operations
-    if (performanceEntries.length > 1 || (performance.now() - start) > 2) {
-      console.log('Performance bottlenecks (>2ms):', performanceEntries.join(', '));
-    }
+    console.log(`📊 Performance: ${performanceEntries.join(' | ')}`);
   }
 }
 
@@ -84,7 +80,7 @@ async function initGame() {
   
   // Set flat terrain mode AFTER worker initialization is complete
   console.log('🏞️ Setting flat terrain mode...');
-  setFlatTerrainMode(false);
+  setFlatTerrainMode(true);
   
   initHUD();
   initInput();
@@ -104,6 +100,10 @@ async function initGame() {
   // Start prerendering chunks around player
   console.log('🗺️ Prerendering initial chunks...');
   await prerenderArea(player.position, 5, 5); // 5 chunk radius, 5 chunks per frame
+  
+  // Initialize static town halls after the initial terrain is loaded
+  console.log('🏛️ Adding town halls to the world...');
+  initializeTownHalls();
   
   // Remove loading message when done
   document.body.removeChild(loadingMessage);
