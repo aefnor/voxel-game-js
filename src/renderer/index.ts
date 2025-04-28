@@ -4,10 +4,12 @@ import { updateCamera } from '../player/camera';
 import { initInput } from '../input/inputhandler';
 import { initHUD, updateHUD } from '../ui/hud';
 import { initChunkWorker, prerenderArea, processChunkQueue, updateChunks, initializeTownHalls } from '../world/chunkmanager';
+import { updateVillagers } from '../world/npc-manager';
 import { setFlatTerrainMode } from '../world/terrain';
 
 let frameCount = 0;
 const renderer = initRenderer();
+let lastFrameTime = performance.now();
 
 function animate() {
   //@ts-ignore
@@ -15,6 +17,11 @@ function animate() {
   
   const start = performance.now();
   frameCount++;
+  
+  // Calculate delta time for smooth animations
+  const currentTime = performance.now();
+  const deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
+  lastFrameTime = currentTime;
   
   // Player position update
   const playerStart = performance.now();
@@ -37,6 +44,11 @@ function animate() {
   const chunksTime = performance.now() - chunksStart;
   
   processChunkQueue(10); // Adjust number for perf
+
+  // Villager update
+  const villagerStart = performance.now();
+  updateVillagers(deltaTime);
+  const villagerTime = performance.now() - villagerStart;
 
   // Rendering
   const renderStart = performance.now();
@@ -61,6 +73,7 @@ function animate() {
     if (hudTime > 2) performanceEntries.push(`HUD: ${hudTime.toFixed(2)}`);
     if (cameraTime > 2) performanceEntries.push(`Camera: ${cameraTime.toFixed(2)}`);
     if (chunksTime > 2) performanceEntries.push(`Chunks: ${chunksTime.toFixed(2)}`);
+    if (villagerTime > 2) performanceEntries.push(`Villagers: ${villagerTime.toFixed(2)}`);
     if (renderTime > 2) performanceEntries.push(`Render: ${renderTime.toFixed(2)}`);
     
     // Always show total time

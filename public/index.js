@@ -23831,6 +23831,183 @@ var init_special_objects = __esm(() => {
   init_three_module();
 });
 
+// src/world/villager.ts
+function createVillager(x, y, z, townHallId) {
+  const villagerType = villagerTypes[Math.floor(Math.random() * villagerTypes.length)];
+  const villager = new Group;
+  const skinMat = new MeshStandardMaterial({ color: 16767916 });
+  const hairMat = new MeshStandardMaterial({ color: villagerType.hairColor });
+  const eyeMat = new MeshStandardMaterial({ color: 0 });
+  const mouthMat = new MeshStandardMaterial({ color: 8077056 });
+  const clothesMat = new MeshStandardMaterial({ color: villagerType.clothesColor });
+  const pantsMat = new MeshStandardMaterial({ color: 3355443 });
+  const hatMat = new MeshStandardMaterial({ color: villagerType.hatColor });
+  const head = new Mesh(new BoxGeometry(0.8, 0.8, 0.8), skinMat);
+  head.position.y = 1.9;
+  villager.add(head);
+  const eyeGeo = new BoxGeometry(0.08, 0.08, 0.08);
+  const leftEye = new Mesh(eyeGeo, eyeMat);
+  const rightEye = new Mesh(eyeGeo, eyeMat);
+  leftEye.position.set(-0.18, 2, 0.41);
+  rightEye.position.set(0.18, 2, 0.41);
+  villager.add(leftEye, rightEye);
+  const mouth = new Mesh(new BoxGeometry(0.25, 0.04, 0.04), mouthMat);
+  mouth.position.set(0, 1.75, 0.41);
+  villager.add(mouth);
+  const hair = new Mesh(new BoxGeometry(0.85, 0.3, 0.85), hairMat);
+  hair.position.y = 2.25;
+  villager.add(hair);
+  if (villagerType.hasHat) {
+    let hat;
+    if (villagerType.type === "farmer") {
+      hat = new Mesh(new CylinderGeometry(0.5, 0.5, 0.1, 16), hatMat);
+      hat.position.y = 2.4;
+    } else if (villagerType.type === "guard") {
+      hat = new Mesh(new CylinderGeometry(0.4, 0.45, 0.3, 16), hatMat);
+      hat.position.y = 2.4;
+    }
+    if (hat) {
+      villager.add(hat);
+    }
+  }
+  const torso = new Mesh(new BoxGeometry(0.9, 1, 0.4), clothesMat);
+  torso.position.y = 1.1;
+  villager.add(torso);
+  const armGeo = new BoxGeometry(0.25, 0.9, 0.25);
+  armGeo.translate(0, -0.45, 0);
+  const leftArm = new Mesh(armGeo, skinMat);
+  const rightArm = new Mesh(armGeo, skinMat);
+  leftArm.position.set(-0.55, 1.55, 0);
+  rightArm.position.set(0.55, 1.55, 0);
+  villager.add(leftArm, rightArm);
+  villager.leftArm = leftArm;
+  villager.rightArm = rightArm;
+  const legGeo = new BoxGeometry(0.3, 1, 0.3);
+  legGeo.translate(0, -0.5, 0);
+  const leftLeg = new Mesh(legGeo, pantsMat);
+  const rightLeg = new Mesh(legGeo, pantsMat);
+  leftLeg.position.set(-0.2, 0.6, 0);
+  rightLeg.position.set(0.2, 0.6, 0);
+  villager.add(leftLeg, rightLeg);
+  villager.leftLeg = leftLeg;
+  villager.rightLeg = rightLeg;
+  villager.position.set(x, y, z);
+  villager.townHallId = townHallId;
+  villager.walkDirection = new Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+  villager.walkSpeed = 0.5 + Math.random() * 0.5;
+  villager.walkRadius = 8 + Math.random() * 4;
+  villager.lastDirectionChange = 0;
+  villager.homePosition = new Vector3(x, y, z);
+  villager.update = (deltaTime) => {
+    const now = performance.now();
+    if (now - villager.lastDirectionChange > 3000) {
+      villager.walkDirection.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+      villager.lastDirectionChange = now;
+      villager.rotation.y = Math.atan2(villager.walkDirection.x, villager.walkDirection.z);
+    }
+    const nextPos = villager.position.clone().add(villager.walkDirection.clone().multiplyScalar(villager.walkSpeed * deltaTime));
+    const distanceFromHome = nextPos.distanceTo(villager.homePosition);
+    if (distanceFromHome <= villager.walkRadius) {
+      villager.position.copy(nextPos);
+    } else {
+      villager.walkDirection.negate();
+      villager.lastDirectionChange = now;
+      villager.rotation.y = Math.atan2(villager.walkDirection.x, villager.walkDirection.z);
+    }
+    const walkCycle = Math.sin(now * 0.005) * 0.2;
+    villager.leftLeg.rotation.x = walkCycle;
+    villager.rightLeg.rotation.x = -walkCycle;
+    villager.leftArm.rotation.x = -walkCycle;
+    villager.rightArm.rotation.x = walkCycle;
+  };
+  return villager;
+}
+var villagerTypes;
+var init_villager = __esm(() => {
+  init_three_module();
+  villagerTypes = [
+    {
+      type: "farmer",
+      clothesColor: 6636321,
+      hairColor: 6697728,
+      hasHat: true,
+      hatColor: 14327917
+    },
+    {
+      type: "merchant",
+      clothesColor: 9662683,
+      hairColor: 657930,
+      hasHat: false,
+      hatColor: 0
+    },
+    {
+      type: "guard",
+      clothesColor: 4286945,
+      hairColor: 5187601,
+      hasHat: true,
+      hatColor: 8092539
+    },
+    {
+      type: "scholar",
+      clothesColor: 8388640,
+      hairColor: 5526612,
+      hasHat: false,
+      hatColor: 0
+    }
+  ];
+});
+
+// src/world/npc-manager.ts
+var exports_npc_manager = {};
+__export(exports_npc_manager, {
+  updateVillagers: () => updateVillagers,
+  spawnVillagersAtTownHall: () => spawnVillagersAtTownHall,
+  getVillagers: () => getVillagers,
+  findClosestVillager: () => findClosestVillager,
+  clearAllVillagers: () => clearAllVillagers
+});
+function spawnVillagersAtTownHall(position, townHallId) {
+  for (let i = 0;i < VILLAGERS_PER_TOWN_HALL; i++) {
+    const offsetX = (Math.random() - 0.5) * 6;
+    const offsetZ = (Math.random() - 0.5) * 6;
+    const villager = createVillager(position.x + offsetX, position.y, position.z + offsetZ, townHallId);
+    scene.add(villager);
+    villagers.push(villager);
+  }
+}
+function updateVillagers(deltaTime) {
+  for (const villager of villagers) {
+    villager.update(deltaTime);
+  }
+}
+function getVillagers() {
+  return villagers;
+}
+function findClosestVillager(position, maxDistance = 5) {
+  let closestVillager = null;
+  let closestDistance = maxDistance;
+  for (const villager of villagers) {
+    const distance = position.distanceTo(villager.position);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestVillager = villager;
+    }
+  }
+  return closestVillager;
+}
+function clearAllVillagers() {
+  for (const villager of villagers) {
+    scene.remove(villager);
+  }
+  villagers.length = 0;
+}
+var villagers, VILLAGERS_PER_TOWN_HALL = 3;
+var init_npc_manager = __esm(() => {
+  init_renderer();
+  init_villager();
+  villagers = [];
+});
+
 // src/world/chunkmanager.ts
 var exports_chunkmanager = {};
 __export(exports_chunkmanager, {
@@ -24234,6 +24411,10 @@ function initializeTownHalls() {
     townHall.position.y = worldY;
     townHall.placed = true;
     log(`\uD83C\uDFDB️ Added static Town Hall ${index + 1} at ${pos.x}, ${worldY}, ${pos.z}`);
+    Promise.resolve().then(() => (init_npc_manager(), exports_npc_manager)).then(({ spawnVillagersAtTownHall: spawnVillagersAtTownHall2 }) => {
+      spawnVillagersAtTownHall2({ x: pos.x, y: worldY, z: pos.z }, index);
+      log(`\uD83D\uDC65 Spawned villagers at Town Hall ${index + 1}`);
+    });
   });
 }
 var CHUNK_SIZE2 = 16, MAX_HEIGHT2 = 300, renderDistance = 3, lastChunkX = Infinity, lastChunkZ = Infinity, WORLD_SIZE = 100, WORLD_MIN, WORLD_MAX, townHallPositions, townHalls, chunks, chunkQueue, visibleChunkKeys, townHallsPlaced, chunkWorker = null, pendingChunkRequests, grassMaterial2, dirtMaterial2, sandMaterial2, rockMaterial2, snowMaterial2, waterMaterial2, geometry2, materials, DEBUG = true, MAX_CACHED_CHUNKS = 100, CHUNK_UNLOAD_DISTANCE, chunkLastAccessed, frustum, projScreenMatrix;
@@ -24611,13 +24792,18 @@ function updateMiniMapPlayerPosition(position) {
 
 // src/renderer/index.ts
 init_chunkmanager();
+init_npc_manager();
 init_terrain();
 var frameCount2 = 0;
 var renderer2 = initRenderer();
+var lastFrameTime2 = performance.now();
 function animate() {
   requestAnimationFrame(animate);
   const start = performance.now();
   frameCount2++;
+  const currentTime = performance.now();
+  const deltaTime = (currentTime - lastFrameTime2) / 1000;
+  lastFrameTime2 = currentTime;
   const playerStart = performance.now();
   playerCharacter.position.copy(player.position);
   const playerTime = performance.now() - playerStart;
@@ -24631,6 +24817,9 @@ function animate() {
   updateChunks(player.position);
   const chunksTime = performance.now() - chunksStart;
   processChunkQueue(10);
+  const villagerStart = performance.now();
+  updateVillagers(deltaTime);
+  const villagerTime = performance.now() - villagerStart;
   const renderStart = performance.now();
   renderer2.render(scene, camera);
   const renderTime = performance.now() - renderStart;
@@ -24651,6 +24840,8 @@ function animate() {
       performanceEntries.push(`Camera: ${cameraTime.toFixed(2)}`);
     if (chunksTime > 2)
       performanceEntries.push(`Chunks: ${chunksTime.toFixed(2)}`);
+    if (villagerTime > 2)
+      performanceEntries.push(`Villagers: ${villagerTime.toFixed(2)}`);
     if (renderTime > 2)
       performanceEntries.push(`Render: ${renderTime.toFixed(2)}`);
     performanceEntries.push(`Total: ${(performance.now() - start).toFixed(2)}`);

@@ -655,5 +655,11 @@ export function initializeTownHalls(): void {
     townHall.placed = true;
     
     log(`🏛️ Added static Town Hall ${index + 1} at ${pos.x}, ${worldY}, ${pos.z}`);
+    
+    // Spawn villagers at this town hall
+    import('./npc-manager').then(({ spawnVillagersAtTownHall }) => {
+      spawnVillagersAtTownHall({ x: pos.x, y: worldY, z: pos.z }, index);
+      log(`👥 Spawned villagers at Town Hall ${index + 1}`);
+    });
   });
 }
