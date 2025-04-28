@@ -6,8 +6,8 @@ import { HarvestableTree } from './special-objects';
 // Global villager data
 const villagers: Villager[] = [];
 const woodcutters: WoodcutterVillager[] = [];
-const VILLAGERS_PER_TOWN_HALL = 3; // Number of villagers to spawn per town hall
-const WOODCUTTERS_PER_TOWN_HALL = 1; // Number of woodcutters to spawn per town hall
+const VILLAGERS_PER_TOWN_HALL = 0; // Number of villagers to spawn per town hall
+const WOODCUTTERS_PER_TOWN_HALL = 200; // Number of woodcutters to spawn per town hall
 
 // Debug flag to enable logging - set to false for performance
 const DEBUG_WOODCUTTER = true;
@@ -80,6 +80,18 @@ export function spawnVillagersAtTownHall(position: { x: number, y: number, z: nu
 }
 
 /**
+ * Tracks a tree that has been harvested for potential regrowth
+ * 
+ * @param tree The tree that has been harvested
+ */
+export function trackHarvestedTree(tree: HarvestableTree): void {
+  // Only track valid trees that aren't already being tracked
+  if (!harvestedTrees.includes(tree)) {
+    harvestedTrees.push(tree);
+  }
+}
+
+/**
  * Updates all villagers in the game. Should be called in the animation loop.
  * 
  * @param deltaTime Time since last update in seconds
@@ -109,15 +121,23 @@ export function updateVillagers(deltaTime: number): void {
   for (let i = 0; i < harvestedTrees.length; i++) {
     const tree = harvestedTrees[i];
     
-    // Trees that are completely harvested will regrow after 60 seconds
-    if (tree.woodRemaining <= 0 && now - tree.lastHarvestTime > 60000) {
-      // Regrow the tree
-      tree.woodRemaining = tree.maxWood;
-      tree.updateAppearance();
+    // Check if the tree reference is still valid (has a parent in the scene)
+    if (!tree || !tree.parent) {
+      console.log('Removing invalid tree reference from tracked trees');
       harvestedTrees.splice(i, 1);
-      i--; // Adjust index after removing element
-      console.log('A tree has regrown!');
+      i--;
+      continue;
     }
+    
+    // Trees that are completely harvested will regrow after 60 seconds
+    // if (tree.woodRemaining <= 0 && now - tree.lastHarvestTime > 60000) {
+    //   // Regrow the tree
+    //   tree.woodRemaining = tree.maxWood;
+    //   tree.updateAppearance();
+    //   harvestedTrees.splice(i, 1);
+    //   i--; // Adjust index after removing element
+    //   console.log('A tree has regrown!');
+    // }
     // Partially harvested trees replenish more quickly (30 seconds)
     else if (tree.woodRemaining > 0 && tree.woodRemaining < tree.maxWood && now - tree.lastHarvestTime > 30000) {
       // Add one wood unit
@@ -130,17 +150,6 @@ export function updateVillagers(deltaTime: number): void {
         i--; // Adjust index after removing element
       }
     }
-  }
-}
-
-/**
- * Tracks a tree that has been harvested for potential regrowth
- * 
- * @param tree The tree that has been harvested
- */
-export function trackHarvestedTree(tree: HarvestableTree): void {
-  if (!harvestedTrees.includes(tree)) {
-    harvestedTrees.push(tree);
   }
 }
 
@@ -159,16 +168,7 @@ export function getWoodcutters(): WoodcutterVillager[] {
 }
 
 /**
- * Find the closest villager to a given position
- * 
- * @param position Position to check from
- * @param maxDistance Maximum distance to consider
- * @returns The closest villager or null if none within range
- */
-export function findClosestVillager(position: THREE.Vector3, maxDistance: number = 5): Villager | null {
-  let closestVillager = null;
-  let closestDistance = maxDistance;
-  
+ * Find the closest
   const allVillagers = [...villagers, ...woodcutters];
   for (const villager of allVillagers) {
     const distance = position.distanceTo(villager.position);

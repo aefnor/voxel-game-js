@@ -24201,15 +24201,16 @@ var init_terrain = __esm(() => {
 function createWoodLabel(wood, maxWood) {
   const canvas2 = document.createElement("canvas");
   const context = canvas2.getContext("2d");
-  canvas2.width = 128;
-  canvas2.height = 64;
+  canvas2.width = 256;
+  canvas2.height = 128;
   if (context) {
-    context.fillStyle = "rgba(0, 0, 0, 0.5)";
+    context.clearRect(0, 0, canvas2.width, canvas2.height);
+    context.fillStyle = "rgba(0, 0, 0, 0.7)";
     context.fillRect(0, 0, canvas2.width, canvas2.height);
     context.strokeStyle = "white";
-    context.lineWidth = 2;
-    context.strokeRect(2, 2, canvas2.width - 4, canvas2.height - 4);
-    context.font = "bold 30px Arial";
+    context.lineWidth = 4;
+    context.strokeRect(4, 4, canvas2.width - 8, canvas2.height - 8);
+    context.font = "bold 48px Arial";
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillStyle = "white";
@@ -24219,21 +24220,23 @@ function createWoodLabel(wood, maxWood) {
   texture.needsUpdate = true;
   const spriteMaterial = new SpriteMaterial({
     map: texture,
-    transparent: true
+    transparent: true,
+    sizeAttenuation: true
   });
   const sprite = new Sprite(spriteMaterial);
-  sprite.scale.set(1.5, 0.75, 1);
+  sprite.scale.set(2, 1, 1);
   return sprite;
 }
 function createTreeFromData(x, y, z) {
   const tree = new Group;
+  tree.position.set(x, y, z);
   const trunkMaterial = new MeshLambertMaterial({ color: 9127187 });
   const trunk = new Mesh(new BoxGeometry(0.6, 4, 0.6), trunkMaterial);
-  trunk.position.set(x, y + 2, z);
+  trunk.position.set(0, 2, 0);
   tree.add(trunk);
   const leavesMaterial = new MeshLambertMaterial({ color: 2981170 });
   const leaves = new Mesh(new SphereGeometry(2, 8, 8), leavesMaterial);
-  leaves.position.set(x, y + 5, z);
+  leaves.position.set(0, 5, 0);
   tree.add(leaves);
   tree.woodRemaining = 10;
   tree.maxWood = 10;
@@ -24242,9 +24245,21 @@ function createTreeFromData(x, y, z) {
   tree.growthStage = 1;
   tree.lastHarvestTime = 0;
   const woodLabel = createWoodLabel(tree.woodRemaining, tree.maxWood);
-  woodLabel.position.set(x, y + 7.5, z);
+  woodLabel.position.set(0, 7.5, 0);
   tree.add(woodLabel);
   tree.woodLabel = woodLabel;
+  const highlightGeometry = new SphereGeometry(2.3, 12, 12);
+  const highlightMaterial = new MeshBasicMaterial({
+    color: 9498256,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+    side: DoubleSide
+  });
+  const highlight = new Mesh(highlightGeometry, highlightMaterial);
+  highlight.position.set(0, 5, 0);
+  highlight.visible = false;
+  tree.add(highlight);
   tree.canBeHarvested = function() {
     return this.woodRemaining > 0 && !this.isBeingHarvested;
   };
@@ -24254,6 +24269,7 @@ function createTreeFromData(x, y, z) {
     this.lastHarvestTime = Date.now();
     this.updateAppearance();
     this.updateWoodLabel();
+    console.log(`Tree harvested: ${harvestedAmount} wood. Remaining: ${this.woodRemaining}/${this.maxWood}`);
     return harvestedAmount;
   };
   tree.getWoodPercentage = function() {
@@ -24261,19 +24277,51 @@ function createTreeFromData(x, y, z) {
   };
   tree.updateAppearance = function() {
     const woodPercentage = this.getWoodPercentage();
+    console.log(`Updating tree appearance. Wood percentage: ${woodPercentage}`);
+    const highlight2 = this.children.find((child) => child instanceof Mesh && child.material.transparent === true && child.material.opacity === 0.3);
+    if (highlight2) {
+      highlight2.visible = this.isBeingHarvested;
+      if (woodPercentage <= 0) {
+        highlight2.position.y = 0.5;
+        highlight2.scale.set(0.4, 0.3, 0.4);
+      } else if (woodPercentage < 0.5) {
+        highlight2.position.y = 3;
+        highlight2.scale.set(woodPercentage * 2.2, woodPercentage * 2.2, woodPercentage * 2.2);
+      } else {
+        highlight2.position.y = 5;
+        highlight2.scale.set(1, 1, 1);
+      }
+    }
     if (woodPercentage <= 0) {
+      console.log("Tree is now a stump!");
       this.children[1].visible = false;
       const trunk2 = this.children[0];
       trunk2.scale.y = 0.25;
-      trunk2.position.y = y + 0.5;
+      trunk2.position.y = 0.5;
       if (this.woodLabel) {
-        this.woodLabel.position.y = y + 1.5;
+        this.woodLabel.position.y = 1.5;
       }
     } else if (woodPercentage < 0.5) {
       const leaves2 = this.children[1];
       leaves2.scale.set(woodPercentage * 2, woodPercentage * 2, woodPercentage * 2);
+      leaves2.visible = true;
+      const trunk2 = this.children[0];
+      if (trunk2.scale.y !== 1) {
+        trunk2.scale.y = 1;
+        trunk2.position.y = 2;
+      }
       if (this.woodLabel) {
-        this.woodLabel.position.y = y + 5 + woodPercentage * 2.5;
+        this.woodLabel.position.y = 5 + woodPercentage * 2.5;
+      }
+    } else {
+      const leaves2 = this.children[1];
+      leaves2.scale.set(1, 1, 1);
+      leaves2.visible = true;
+      const trunk2 = this.children[0];
+      trunk2.scale.y = 1;
+      trunk2.position.y = 2;
+      if (this.woodLabel) {
+        this.woodLabel.position.y = 7.5;
       }
     }
   };
@@ -24283,12 +24331,16 @@ function createTreeFromData(x, y, z) {
       const newLabel = createWoodLabel(this.woodRemaining, this.maxWood);
       const woodPercentage = this.getWoodPercentage();
       if (woodPercentage <= 0) {
-        newLabel.position.set(x, y + 1.5, z);
+        newLabel.position.set(0, 1.5, 0);
       } else {
-        newLabel.position.set(x, y + 5 + woodPercentage * 2.5, z);
+        newLabel.position.set(0, 5 + woodPercentage * 2.5, 0);
       }
+      newLabel.matrixAutoUpdate = true;
       this.add(newLabel);
       this.woodLabel = newLabel;
+      if (newLabel.material && newLabel.material.map) {
+        newLabel.material.map.needsUpdate = true;
+      }
     }
   };
   tree.userData = {
@@ -24299,43 +24351,54 @@ function createTreeFromData(x, y, z) {
 }
 function createHouseFromData(x, y, z) {
   const house = new Group;
+  house.position.set(x, y, z);
   const base = new Mesh(new BoxGeometry(4, 3, 4), new MeshLambertMaterial({ color: 9127187 }));
-  base.position.set(x, y + 1.5, z);
+  base.position.set(0, 1.5, 0);
   house.add(base);
   const roof = new Mesh(new ConeGeometry(3, 2, 4), new MeshLambertMaterial({ color: 16711680 }));
-  roof.position.set(x, y + 4, z);
+  roof.position.set(0, 4, 0);
   house.add(roof);
+  house.userData = {
+    type: "house",
+    position: new Vector3(x, y, z)
+  };
   return house;
 }
 function createTownHallFromData(x, y, z) {
   const townHall = new Group;
+  townHall.position.set(x, y, z);
   const mainBuildingMaterial = new MeshLambertMaterial({ color: 10255174 });
   const mainBuilding = new Mesh(new BoxGeometry(10, 6, 10), mainBuildingMaterial);
-  mainBuilding.position.set(x, y + 3, z);
+  mainBuilding.position.set(0, 3, 0);
   townHall.add(mainBuilding);
   const roofMaterial = new MeshLambertMaterial({ color: 30400 });
   const roof = new Mesh(new ConeGeometry(8, 4, 4), roofMaterial);
-  roof.position.set(x, y + 8, z);
+  roof.position.set(0, 8, 0);
   townHall.add(roof);
   const towerMaterial = new MeshLambertMaterial({ color: 13948116 });
   const tower = new Mesh(new BoxGeometry(2, 5, 2), towerMaterial);
-  tower.position.set(x, y + 12.5, z);
+  tower.position.set(0, 12.5, 0);
   townHall.add(tower);
   const towerRoof = new Mesh(new ConeGeometry(1.5, 2, 4), roofMaterial);
-  towerRoof.position.set(x, y + 16, z);
+  towerRoof.position.set(0, 16, 0);
   townHall.add(towerRoof);
   const entranceMaterial = new MeshLambertMaterial({ color: 9127187 });
   const entrance = new Mesh(new BoxGeometry(4, 3, 1), entranceMaterial);
-  entrance.position.set(x, y + 1.5, z - 5);
+  entrance.position.set(0, 1.5, -5);
   townHall.add(entrance);
   const flagPoleMaterial = new MeshLambertMaterial({ color: 9145227 });
   const flagPole = new Mesh(new CylinderGeometry(0.1, 0.1, 3, 8), flagPoleMaterial);
-  flagPole.position.set(x, y + 18, z);
+  flagPole.position.set(0, 18, 0);
   townHall.add(flagPole);
   const flagMaterial = new MeshLambertMaterial({ color: 16711680 });
   const flag = new Mesh(new BoxGeometry(1, 0.8, 0.05), flagMaterial);
-  flag.position.set(x + 0.5, y + 17.5, z);
+  flag.position.set(0.5, 17.5, 0);
   townHall.add(flag);
+  townHall.userData = {
+    type: "townHall",
+    id: Date.now(),
+    position: new Vector3(x, y, z)
+  };
   return townHall;
 }
 var init_special_objects = __esm(() => {
@@ -24503,7 +24566,7 @@ function createWoodcutterVillager(x, y, z, townHallId) {
   woodcutter.position.set(x, y, z);
   woodcutter.townHallId = townHallId;
   woodcutter.walkDirection = new Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-  woodcutter.walkSpeed = 0.5 + Math.random() * 0.5;
+  woodcutter.walkSpeed = 3 + Math.random() * 0.5;
   woodcutter.walkRadius = 40 + Math.random() * 10;
   woodcutter.lastDirectionChange = 0;
   woodcutter.homePosition = new Vector3(x, y, z);
@@ -24525,21 +24588,31 @@ function createWoodcutterVillager(x, y, z, townHallId) {
     scene.traverse((object) => {
       if (object.userData?.type === "harvestableTree") {
         treeCounter++;
+        const objectPosition = object.position;
+        if (objectPosition.x === 0 && objectPosition.y === 0 && objectPosition.z === 0) {
+          if (DEBUG_WOODCUTTER) {
+            console.log(`  Skipping tree at origin [0, 0, 0], likely uninitialized`);
+          }
+          return;
+        }
         if (object.canBeHarvested) {
           if (object.canBeHarvested()) {
             validTreeCounter++;
             const tree = object;
-            const distance = this.position.distanceTo(new Vector3(object.position.x, this.position.y, object.position.z));
-            if (DEBUG_WOODCUTTER && debugCounter % DEBUG_SAMPLE_RATE === 0) {
-              console.log(`  Found harvestable tree at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}], distance: ${distance.toFixed(2)}, wood: ${tree.woodRemaining}/${tree.maxWood}`);
+            const distance = Math.sqrt(Math.pow(this.position.x - tree.position.x, 2) + Math.pow(this.position.z - tree.position.z, 2));
+            if (DEBUG_WOODCUTTER) {
+              console.log(`  Found harvestable tree at [${tree.position.x.toFixed(2)}, ${tree.position.y.toFixed(2)}, ${tree.position.z.toFixed(2)}], distance: ${distance.toFixed(2)}, wood: ${tree.woodRemaining}/${tree.maxWood}`);
             }
             if (distance < closestDistance) {
               closestTree = tree;
               closestDistance = distance;
+              if (DEBUG_WOODCUTTER) {
+                console.log(`  -> This is now the closest tree (${distance.toFixed(2)} units away)`);
+              }
             }
           } else if (DEBUG_WOODCUTTER) {
             const tree = object;
-            console.log(`  Tree at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}] is not harvestable: woodRemaining=${tree.woodRemaining}, isBeingHarvested=${tree.isBeingHarvested}`);
+            console.log(`  Tree at [${tree.position.x.toFixed(2)}, ${tree.position.y.toFixed(2)}, ${tree.position.z.toFixed(2)}] is not harvestable: woodRemaining=${tree.woodRemaining}, isBeingHarvested=${tree.isBeingHarvested}`);
           }
         } else if (DEBUG_WOODCUTTER) {
           console.log(`  Object at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}] has type 'harvestableTree' but no canBeHarvested method`);
@@ -24549,7 +24622,7 @@ function createWoodcutterVillager(x, y, z, townHallId) {
     if (DEBUG_WOODCUTTER) {
       console.log(`Found ${treeCounter} total trees, ${validTreeCounter} valid harvestable trees`);
       if (closestTree) {
-        console.log(`Selected closest tree at distance ${closestDistance.toFixed(2)}`);
+        console.log(`Selected closest tree at distance ${closestDistance.toFixed(2)} at [${closestTree.position.x.toFixed(2)}, ${closestTree.position.y.toFixed(2)}, ${closestTree.position.z.toFixed(2)}]`);
       } else {
         console.log(`No suitable tree found within range ${this.walkRadius}`);
       }
@@ -24560,13 +24633,25 @@ function createWoodcutterVillager(x, y, z, townHallId) {
   woodcutter.moveToTree = function(deltaTime) {
     if (!this.targetTree)
       return false;
+    if (DEBUG_WOODCUTTER && debugCounter % DEBUG_SAMPLE_RATE === 0) {
+      console.log(`Moving to tree at position [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}]`);
+    }
     const treePos = new Vector3(this.targetTree.position.x, this.position.y, this.targetTree.position.z);
     const directionToTree = treePos.clone().sub(this.position).normalize();
     this.rotation.y = Math.atan2(directionToTree.x, directionToTree.z);
     const distance = this.position.distanceTo(treePos);
-    if (distance > 1.5) {
+    const harvestingDistance = 0.8;
+    if (DEBUG_WOODCUTTER && debugCounter % DEBUG_SAMPLE_RATE === 0) {
+      console.log(`Distance to tree: ${distance.toFixed(2)} units`);
+    }
+    if (distance > harvestingDistance) {
       const movement = directionToTree.multiplyScalar(this.walkSpeed * deltaTime);
       this.position.add(movement);
+      const newDistance = this.position.distanceTo(treePos);
+      if (newDistance < harvestingDistance) {
+        const idealPos = treePos.clone().sub(directionToTree.clone().multiplyScalar(harvestingDistance));
+        this.position.copy(idealPos);
+      }
       const now = performance.now();
       const walkCycle = Math.sin(now * 0.005) * 0.2;
       this.leftLeg.rotation.x = walkCycle;
@@ -24575,17 +24660,28 @@ function createWoodcutterVillager(x, y, z, townHallId) {
       this.rightArm.rotation.x = walkCycle;
       return false;
     } else {
+      if (DEBUG_WOODCUTTER) {
+        console.log(`Arrived at tree [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}], ready to harvest`);
+      }
       return true;
     }
   };
   woodcutter.harvestTree = function(deltaTime) {
-    if (!this.targetTree || this.woodCarried >= this.maxWoodCapacity) {
+    if (!this.targetTree || !this.targetTree.parent || this.woodCarried >= this.maxWoodCapacity) {
       if (DEBUG_WOODCUTTER) {
         if (!this.targetTree) {
           console.log("Cannot harvest: target tree is null");
+        } else if (!this.targetTree.parent) {
+          console.log("Cannot harvest: target tree no longer exists in the scene");
+          this.targetTree = null;
         } else if (this.woodCarried >= this.maxWoodCapacity) {
           console.log(`Cannot harvest: inventory full (${this.woodCarried}/${this.maxWoodCapacity})`);
         }
+      }
+      if (this.targetTree && this.targetTree.parent) {
+        this.targetTree.isBeingHarvested = false;
+        this.targetTree.harvestedBy = null;
+        this.targetTree.updateAppearance();
       }
       return true;
     }
@@ -24595,31 +24691,63 @@ function createWoodcutterVillager(x, y, z, townHallId) {
     this.rightLeg.rotation.x = 0;
     this.leftArm.rotation.x = -0.2;
     this.axe.rotation.z = Math.PI / 2 - Math.abs(Math.sin(now * 0.01)) * 0.5;
-    this.harvestTimer += deltaTime * this.harvestSpeed;
-    if (this.harvestTimer >= 1) {
+    if (this.harvestTimer === 0) {
       this.targetTree.isBeingHarvested = true;
       this.targetTree.harvestedBy = `woodcutter-${this.id || Math.random().toString(36).substr(2, 9)}`;
-      const woodBefore = this.targetTree.woodRemaining;
-      const harvested = this.targetTree.harvestWood(1);
-      const woodAfter = this.targetTree.woodRemaining;
-      if (DEBUG_WOODCUTTER) {
-        console.log(`Harvested ${harvested} wood from tree at [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}], wood remaining: ${woodAfter}/${this.targetTree.maxWood}`);
-      }
-      this.woodCarried += harvested;
-      this.harvestTimer = 0;
-      if (DEBUG_WOODCUTTER) {
-        console.log(`Woodcutter now carrying ${this.woodCarried}/${this.maxWoodCapacity} wood`);
-      }
-      trackHarvestedTree(this.targetTree);
-      if (!this.targetTree.canBeHarvested() || this.woodCarried >= this.maxWoodCapacity) {
-        this.targetTree.isBeingHarvested = false;
-        this.targetTree.harvestedBy = null;
+      this.targetTree.updateAppearance();
+    }
+    this.harvestTimer += deltaTime * this.harvestSpeed;
+    if (this.harvestTimer >= 1) {
+      if (!this.targetTree || !this.targetTree.parent) {
         if (DEBUG_WOODCUTTER) {
-          if (!this.targetTree.canBeHarvested()) {
-            console.log("Tree fully harvested, returning to town hall");
-          } else {
-            console.log("Inventory full, returning to town hall");
+          console.log("Tree disappeared during harvesting");
+        }
+        this.targetTree = null;
+        return true;
+      }
+      try {
+        const woodBefore = this.targetTree.woodRemaining;
+        const harvested = this.targetTree.harvestWood(1);
+        const woodAfter = this.targetTree.woodRemaining;
+        if (DEBUG_WOODCUTTER) {
+          console.log(`Harvested ${harvested} wood from tree at [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}], wood remaining: ${woodAfter}/${this.targetTree.maxWood}`);
+        }
+        this.woodCarried += harvested;
+        this.harvestTimer = 0;
+        if (DEBUG_WOODCUTTER) {
+          console.log(`Woodcutter now carrying ${this.woodCarried}/${this.maxWoodCapacity} wood`);
+        }
+        if (this.targetTree && this.targetTree.updateAppearance) {
+          this.targetTree.updateAppearance();
+        }
+        if (this.targetTree && this.targetTree.updateWoodLabel) {
+          this.targetTree.updateWoodLabel();
+        }
+        if (this.targetTree) {
+          trackHarvestedTree(this.targetTree);
+        }
+        if (!this.targetTree || this.targetTree.woodRemaining <= 0 || this.woodCarried >= this.maxWoodCapacity) {
+          if (this.targetTree) {
+            this.targetTree.isBeingHarvested = false;
+            this.targetTree.harvestedBy = null;
+            if (DEBUG_WOODCUTTER) {
+              if (this.targetTree.woodRemaining <= 0) {
+                console.log("Tree fully harvested, turning into stump and returning to town hall");
+              } else {
+                console.log("Inventory full, returning to town hall");
+              }
+            }
+            this.targetTree.updateAppearance();
+            this.targetTree.updateWoodLabel();
           }
+          return true;
+        }
+      } catch (error) {
+        console.error("Error during harvesting:", error);
+        if (this.targetTree) {
+          this.targetTree.isBeingHarvested = false;
+          this.targetTree.updateAppearance();
+          this.targetTree = null;
         }
         return true;
       }
@@ -24781,7 +24909,6 @@ __export(exports_npc_manager, {
   spawnVillagersAtTownHall: () => spawnVillagersAtTownHall,
   getWoodcutters: () => getWoodcutters,
   getVillagers: () => getVillagers,
-  findClosestVillager: () => findClosestVillager,
   clearAllVillagers: () => clearAllVillagers
 });
 function spawnVillagersAtTownHall(position, townHallId) {
@@ -24804,6 +24931,11 @@ function spawnVillagersAtTownHall(position, townHallId) {
     woodcutters.push(woodcutter);
   }
 }
+function trackHarvestedTree(tree) {
+  if (!harvestedTrees.includes(tree)) {
+    harvestedTrees.push(tree);
+  }
+}
 function updateVillagers(deltaTime) {
   for (const villager of villagers) {
     villager.update(deltaTime);
@@ -24821,12 +24953,11 @@ function updateVillagers(deltaTime) {
   const now = Date.now();
   for (let i = 0;i < harvestedTrees.length; i++) {
     const tree = harvestedTrees[i];
-    if (tree.woodRemaining <= 0 && now - tree.lastHarvestTime > 60000) {
-      tree.woodRemaining = tree.maxWood;
-      tree.updateAppearance();
+    if (!tree || !tree.parent) {
+      console.log("Removing invalid tree reference from tracked trees");
       harvestedTrees.splice(i, 1);
       i--;
-      console.log("A tree has regrown!");
+      continue;
     } else if (tree.woodRemaining > 0 && tree.woodRemaining < tree.maxWood && now - tree.lastHarvestTime > 30000) {
       tree.woodRemaining = Math.min(tree.maxWood, tree.woodRemaining + 1);
       tree.updateAppearance();
@@ -24837,29 +24968,11 @@ function updateVillagers(deltaTime) {
     }
   }
 }
-function trackHarvestedTree(tree) {
-  if (!harvestedTrees.includes(tree)) {
-    harvestedTrees.push(tree);
-  }
-}
 function getVillagers() {
   return [...villagers, ...woodcutters];
 }
 function getWoodcutters() {
   return woodcutters;
-}
-function findClosestVillager(position, maxDistance = 5) {
-  let closestVillager = null;
-  let closestDistance = maxDistance;
-  const allVillagers = [...villagers, ...woodcutters];
-  for (const villager of allVillagers) {
-    const distance = position.distanceTo(villager.position);
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestVillager = villager;
-    }
-  }
-  return closestVillager;
 }
 function clearAllVillagers() {
   for (const villager of villagers) {
@@ -24873,7 +24986,7 @@ function clearAllVillagers() {
   townHallResources.length = 0;
   harvestedTrees.length = 0;
 }
-var villagers, woodcutters, VILLAGERS_PER_TOWN_HALL = 3, WOODCUTTERS_PER_TOWN_HALL = 1, harvestedTrees, townHallResources;
+var villagers, woodcutters, VILLAGERS_PER_TOWN_HALL = 0, WOODCUTTERS_PER_TOWN_HALL = 200, harvestedTrees, townHallResources;
 var init_npc_manager = __esm(() => {
   init_renderer();
   init_villager();

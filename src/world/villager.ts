@@ -376,7 +376,7 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
     0,
     Math.random() - 0.5
   ).normalize();
-  woodcutter.walkSpeed = 0.5 + Math.random() * 0.5; // Random speed between 0.5 and 1.0
+  woodcutter.walkSpeed = 3 + Math.random() * 0.5; // Random speed between 0.5 and 1.0
   woodcutter.walkRadius = 40 + Math.random() * 10; // Increased radius to find trees (40-50 blocks)
   woodcutter.lastDirectionChange = 0;
   woodcutter.homePosition = new THREE.Vector3(x, y, z);
@@ -409,6 +409,17 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
       if (object.userData?.type === 'harvestableTree') {
         treeCounter++;
         
+        // Get the tree position - trees should now have their position set correctly
+        const objectPosition = object.position;
+        
+        // Skip trees with exactly 0,0,0 position which might be uninitialized
+        if (objectPosition.x === 0 && objectPosition.y === 0 && objectPosition.z === 0) {
+          if (DEBUG_WOODCUTTER) {
+            console.log(`  Skipping tree at origin [0, 0, 0], likely uninitialized`);
+          }
+          return;
+        }
+        
         // Check if tree has required harvesting methods
         if ((object as any).canBeHarvested) {
           // Check if tree has wood and is not being harvested
@@ -416,25 +427,28 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
             validTreeCounter++;
             
             const tree = object as HarvestableTree;
-            const distance = this.position.distanceTo(
-              new THREE.Vector3(
-                object.position.x, 
-                this.position.y, // Use woodcutter's y to measure horizontal distance
-                object.position.z
-              )
+            
+            // Calculate horizontal distance to the tree (ignoring y-axis differences)
+            const distance = Math.sqrt(
+              Math.pow(this.position.x - tree.position.x, 2) +
+              Math.pow(this.position.z - tree.position.z, 2)
             );
             
-            if (DEBUG_WOODCUTTER && debugCounter % DEBUG_SAMPLE_RATE === 0) {
-              console.log(`  Found harvestable tree at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}], distance: ${distance.toFixed(2)}, wood: ${tree.woodRemaining}/${tree.maxWood}`);
+            if (DEBUG_WOODCUTTER) {
+              console.log(`  Found harvestable tree at [${tree.position.x.toFixed(2)}, ${tree.position.y.toFixed(2)}, ${tree.position.z.toFixed(2)}], distance: ${distance.toFixed(2)}, wood: ${tree.woodRemaining}/${tree.maxWood}`);
             }
             
             if (distance < closestDistance) {
               closestTree = tree;
               closestDistance = distance;
+              
+              if (DEBUG_WOODCUTTER) {
+                console.log(`  -> This is now the closest tree (${distance.toFixed(2)} units away)`);
+              }
             }
           } else if (DEBUG_WOODCUTTER) {
             const tree = object as HarvestableTree;
-            console.log(`  Tree at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}] is not harvestable: woodRemaining=${tree.woodRemaining}, isBeingHarvested=${tree.isBeingHarvested}`);
+            console.log(`  Tree at [${tree.position.x.toFixed(2)}, ${tree.position.y.toFixed(2)}, ${tree.position.z.toFixed(2)}] is not harvestable: woodRemaining=${tree.woodRemaining}, isBeingHarvested=${tree.isBeingHarvested}`);
           }
         } else if (DEBUG_WOODCUTTER) {
           console.log(`  Object at [${object.position.x.toFixed(2)}, ${object.position.y.toFixed(2)}, ${object.position.z.toFixed(2)}] has type 'harvestableTree' but no canBeHarvested method`);
@@ -445,7 +459,7 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
     if (DEBUG_WOODCUTTER) {
       console.log(`Found ${treeCounter} total trees, ${validTreeCounter} valid harvestable trees`);
       if (closestTree) {
-        console.log(`Selected closest tree at distance ${closestDistance.toFixed(2)}`);
+        console.log(`Selected closest tree at distance ${closestDistance.toFixed(2)} at [${closestTree.position.x.toFixed(2)}, ${closestTree.position.y.toFixed(2)}, ${closestTree.position.z.toFixed(2)}]`);
       } else {
         console.log(`No suitable tree found within range ${this.walkRadius}`);
       }
@@ -460,7 +474,11 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
   woodcutter.moveToTree = function(deltaTime: number) {
     if (!this.targetTree) return false;
     
-    // Get tree position
+    if (DEBUG_WOODCUTTER && debugCounter % DEBUG_SAMPLE_RATE === 0) {
+      console.log(`Moving to tree at position [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}]`);
+    }
+    
+    // Get tree position - ensure we're using the actual position of the tree
     const treePos = new THREE.Vector3(
       this.targetTree.position.x, 
       this.position.y, // Maintain woodcutter's height
@@ -475,10 +493,27 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
     
     // Move towards the tree
     const distance = this.position.distanceTo(treePos);
-    if (distance > 1.5) { // Stop when within harvesting distance
+    
+    // Calculate stopping point that's closer to the tree trunk (0.8 units from center)
+    // This ensures the woodcutter is visibly next to the trunk when harvesting
+    const harvestingDistance = 0.8;
+    
+    if (DEBUG_WOODCUTTER && debugCounter % DEBUG_SAMPLE_RATE === 0) {
+      console.log(`Distance to tree: ${distance.toFixed(2)} units`);
+    }
+    
+    if (distance > harvestingDistance) { // Move until properly positioned beside the trunk
       // Move towards tree
       const movement = directionToTree.multiplyScalar(this.walkSpeed * deltaTime);
       this.position.add(movement);
+      
+      // If about to overshoot, just position exactly at the correct distance
+      const newDistance = this.position.distanceTo(treePos);
+      if (newDistance < harvestingDistance) {
+        // Position precisely at harvesting distance
+        const idealPos = treePos.clone().sub(directionToTree.clone().multiplyScalar(harvestingDistance));
+        this.position.copy(idealPos);
+      }
       
       // Animate walking
       const now = performance.now();
@@ -491,21 +526,36 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
       return false; // Not at tree yet
     } else {
       // At tree, ready to harvest
+      if (DEBUG_WOODCUTTER) {
+        console.log(`Arrived at tree [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}], ready to harvest`);
+      }
       return true;
     }
   };
 
   // Harvest wood from the tree
   woodcutter.harvestTree = function(deltaTime: number) {
-    if (!this.targetTree || this.woodCarried >= this.maxWoodCapacity) {
+    // Check if the tree reference is still valid and exists in the scene
+    if (!this.targetTree || !this.targetTree.parent || this.woodCarried >= this.maxWoodCapacity) {
       if (DEBUG_WOODCUTTER) {
         if (!this.targetTree) {
           console.log('Cannot harvest: target tree is null');
+        } else if (!this.targetTree.parent) {
+          console.log('Cannot harvest: target tree no longer exists in the scene');
+          this.targetTree = null; // Clear invalid reference
         } else if (this.woodCarried >= this.maxWoodCapacity) {
           console.log(`Cannot harvest: inventory full (${this.woodCarried}/${this.maxWoodCapacity})`);
         }
       }
-      return true;
+      
+      // Make sure we clear any highlight from trees we're not harvesting anymore
+      if (this.targetTree && this.targetTree.parent) {
+        this.targetTree.isBeingHarvested = false;
+        this.targetTree.harvestedBy = null;
+        this.targetTree.updateAppearance();
+      }
+      
+      return true; // Finished harvesting (due to invalid tree or full inventory)
     }
     
     // Start harvesting animation
@@ -522,46 +572,93 @@ export function createWoodcutterVillager(x: number, y: number, z: number, townHa
     // Tilt axe during swing
     this.axe.rotation.z = Math.PI / 2 - Math.abs(Math.sin(now * 0.01)) * 0.5;
     
+    // First time entering harvesting state - mark the tree as being harvested and show highlight
+    if (this.harvestTimer === 0) {
+      // Mark tree as being harvested
+      this.targetTree.isBeingHarvested = true;
+      this.targetTree.harvestedBy = `woodcutter-${this.id || Math.random().toString(36).substr(2, 9)}`;
+      // Update tree appearance to show highlight
+      this.targetTree.updateAppearance();
+    }
+    
     // Update harvest timer
     this.harvestTimer += deltaTime * this.harvestSpeed;
     
     // When timer reaches threshold, harvest wood
     if (this.harvestTimer >= 1) {
-      // Mark tree as being harvested
-      this.targetTree.isBeingHarvested = true;
-      this.targetTree.harvestedBy = `woodcutter-${this.id || Math.random().toString(36).substr(2, 9)}`;
-      
-      // Harvest one unit of wood
-      const woodBefore = this.targetTree.woodRemaining;
-      const harvested = this.targetTree.harvestWood(1);
-      const woodAfter = this.targetTree.woodRemaining;
-      
-      if (DEBUG_WOODCUTTER) {
-        console.log(`Harvested ${harvested} wood from tree at [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}], wood remaining: ${woodAfter}/${this.targetTree.maxWood}`);
-      }
-      
-      this.woodCarried += harvested;
-      this.harvestTimer = 0;
-      
-      if (DEBUG_WOODCUTTER) {
-        console.log(`Woodcutter now carrying ${this.woodCarried}/${this.maxWoodCapacity} wood`);
-      }
-      
-      // Track tree for regrowth
-      trackHarvestedTree(this.targetTree);
-      
-      // Release tree if fully harvested or inventory full
-      if (!this.targetTree.canBeHarvested() || this.woodCarried >= this.maxWoodCapacity) {
-        this.targetTree.isBeingHarvested = false;
-        this.targetTree.harvestedBy = null;
+      // Check target tree again to ensure it's still valid
+      if (!this.targetTree || !this.targetTree.parent) {
         if (DEBUG_WOODCUTTER) {
-          if (!this.targetTree.canBeHarvested()) {
-            console.log('Tree fully harvested, returning to town hall');
-          } else {
-            console.log('Inventory full, returning to town hall');
-          }
+          console.log('Tree disappeared during harvesting');
         }
-        return true; // Finished harvesting
+        this.targetTree = null;
+        return true; // Finished harvesting due to invalid tree
+      }
+      
+      try {
+        // Harvest one unit of wood
+        const woodBefore = this.targetTree.woodRemaining;
+        const harvested = this.targetTree.harvestWood(1);
+        const woodAfter = this.targetTree.woodRemaining;
+        
+        if (DEBUG_WOODCUTTER) {
+          console.log(`Harvested ${harvested} wood from tree at [${this.targetTree.position.x.toFixed(2)}, ${this.targetTree.position.y.toFixed(2)}, ${this.targetTree.position.z.toFixed(2)}], wood remaining: ${woodAfter}/${this.targetTree.maxWood}`);
+        }
+        
+        this.woodCarried += harvested;
+        this.harvestTimer = 0;
+        
+        if (DEBUG_WOODCUTTER) {
+          console.log(`Woodcutter now carrying ${this.woodCarried}/${this.maxWoodCapacity} wood`);
+        }
+        
+        // Force an update for the tree's appearance
+        if (this.targetTree && this.targetTree.updateAppearance) {
+          this.targetTree.updateAppearance();
+        }
+        
+        if (this.targetTree && this.targetTree.updateWoodLabel) {
+          this.targetTree.updateWoodLabel();
+        }
+        
+        // Track tree for regrowth
+        if (this.targetTree) {
+          trackHarvestedTree(this.targetTree);
+        }
+        
+        // Check if the tree is now fully harvested or inventory full
+        if (!this.targetTree || this.targetTree.woodRemaining <= 0 || this.woodCarried >= this.maxWoodCapacity) {
+          // Release tree if fully harvested or inventory full
+          if (this.targetTree) {
+            this.targetTree.isBeingHarvested = false;
+            this.targetTree.harvestedBy = null;
+            
+            if (DEBUG_WOODCUTTER) {
+              if (this.targetTree.woodRemaining <= 0) {
+                console.log('Tree fully harvested, turning into stump and returning to town hall');
+              } else {
+                console.log('Inventory full, returning to town hall');
+              }
+            }
+            
+            // Final update to ensure tree appearance matches its state
+            this.targetTree.updateAppearance();
+            this.targetTree.updateWoodLabel();
+          }
+          
+          return true; // Finished harvesting
+        }
+      } catch (error) {
+        // If any errors occur during harvesting (like trying to access properties of invalid objects)
+        console.error('Error during harvesting:', error);
+        
+        // Clean up any tree reference
+        if (this.targetTree) {
+          this.targetTree.isBeingHarvested = false;
+          this.targetTree.updateAppearance(); // Remove highlight
+          this.targetTree = null; // Clear the invalid reference
+        }
+        return true; // Finished harvesting due to error
       }
     }
     
